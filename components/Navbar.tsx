@@ -19,12 +19,15 @@ import {
   ListOrdered,
   Maximize2,
   Minimize2,
-  Flame
+  Flame,
+  Layers
 } from 'lucide-react';
 import { PanicButton } from '@/components/PanicButton';
 
 export type AppTab = 
   | 'simulator' 
+  | 'jargon-buster'
+  | 'big-five'
   | 'scenarios' 
   | 'daily-sim'
   | 'ecosystem'
@@ -92,6 +95,30 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
             <span>Simulator</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('jargon-buster')}
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all ${
+              activeTab === 'jargon-buster'
+                ? 'bg-white text-stone-900 shadow-2xs border border-stone-200/80 font-bold'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
+            }`}
+          >
+            <BookOpen className="h-3.5 w-3.5 text-amber-600" />
+            <span>Jargon Buster</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('big-five')}
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all ${
+              activeTab === 'big-five'
+                ? 'bg-white text-stone-900 shadow-2xs border border-stone-200/80 font-bold'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
+            }`}
+          >
+            <Layers className="h-3.5 w-3.5 text-purple-600" />
+            <span>Big 5 Architectures</span>
           </button>
 
           <button

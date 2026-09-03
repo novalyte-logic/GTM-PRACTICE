@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Sparkles, 
   Mic, 
@@ -58,6 +58,8 @@ import { CURATED_QUESTIONS, WILDCARD_CONSTRAINTS } from '@/lib/mock-data';
 import { StepTooltip } from '@/components/StepTooltip';
 import { PanicButton } from '@/components/PanicButton';
 import { TARGET_APPLICATIONS, getTargetApplication, TargetCompanyApplication } from '@/lib/target-companies';
+import { generateSpokenScript, generateTeleprompterCribSheet, SpokenScriptFramework, TeleprompterCribSheet } from '@/lib/script-generator';
+import { getCompanyBriefing, CompanyExecutiveBriefing } from '@/lib/company-briefings';
 
 interface InterviewSimulatorProps {
   onSaveAnswer: (record: CandidateAnswerRecord) => void;
@@ -209,6 +211,23 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
     filteredQuestions[0] || 
     questionsList[0] || 
     CURATED_QUESTIONS[0];
+
+  // Spoken Script & Teleprompter State
+  const [showScriptModal, setShowScriptModal] = useState<boolean>(false);
+  const [showTeleprompter, setShowTeleprompter] = useState<boolean>(true);
+  const [copiedScript, setCopiedScript] = useState<boolean>(false);
+
+  const scriptFramework: SpokenScriptFramework = useMemo(() => {
+    return generateSpokenScript(activeQuestion, selectedCompany);
+  }, [activeQuestion, selectedCompany]);
+
+  const teleprompterData: TeleprompterCribSheet = useMemo(() => {
+    return generateTeleprompterCribSheet(activeQuestion, selectedCompany);
+  }, [activeQuestion, selectedCompany]);
+
+  const companyBriefing: CompanyExecutiveBriefing | undefined = useMemo(() => {
+    return selectedCompany ? getCompanyBriefing(selectedCompany.id) : undefined;
+  }, [selectedCompany]);
 
   // Check Adaptive Difficulty Progression
   const recentAnswerScores = completedAnswers
@@ -1153,6 +1172,15 @@ ${activeHint.revenueMetricAngle}
                   <span>AI Hint</span>
                 </button>
 
+                <button
+                  onClick={() => setShowScriptModal(true)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs font-bold text-purple-700 hover:bg-purple-100 transition shadow-2xs"
+                  title="View a ready-to-speak 60-second answer script using the STAR framework"
+                >
+                  <Volume2 className="h-3.5 w-3.5 text-purple-600" />
+                  <span>🎙️ How to Say It (60s Script)</span>
+                </button>
+
                 <PanicButton
                   currentTrack={activeQuestion.track}
                   currentQuestionTitle={activeQuestion.title}
@@ -1382,6 +1410,65 @@ ${activeHint.revenueMetricAngle}
                 </div>
               </div>
             )}
+
+            {/* Live Teleprompter / Crib Sheet Banner (Feature 4) */}
+            <div className="rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/70 via-purple-50/40 to-stone-50 p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-md bg-indigo-600 text-white font-bold text-[10px]">
+                    🪟
+                  </span>
+                  <span className="text-xs font-extrabold text-indigo-950">
+                    Live Teleprompter Crib Sheet (Peek While Speaking)
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowTeleprompter(!showTeleprompter)}
+                  className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 transition"
+                >
+                  {showTeleprompter ? 'Collapse' : 'Expand'}
+                </button>
+              </div>
+
+              {showTeleprompter && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-1 text-xs animate-in fade-in">
+                  <div className="rounded-xl bg-white p-2.5 border border-indigo-100 shadow-2xs space-y-1">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-800 flex items-center gap-1">
+                      <Sparkles className="h-3 w-3 text-indigo-600" />
+                      3 Buzzwords to Drop:
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {teleprompterData.buzzwordsToDrop.map((b) => (
+                        <span key={b} className="rounded-md bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-900 border border-indigo-100">
+                          {b}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl bg-white p-2.5 border border-emerald-100 shadow-2xs space-y-1">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 flex items-center gap-1">
+                      <TrendingUp className="h-3 w-3 text-emerald-600" />
+                      Target Metric to Quote:
+                    </span>
+                    <div className="text-[11px] font-bold text-emerald-900">
+                      📈 {teleprompterData.targetMetricToQuote}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl bg-white p-2.5 border border-purple-100 shadow-2xs space-y-1">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-purple-800 flex items-center gap-1">
+                      <Award className="h-3 w-3 text-purple-600" />
+                      Your Story Anchor:
+                    </span>
+                    <div className="text-[10px] text-purple-950 font-medium line-clamp-2">
+                      {teleprompterData.storyAnchor}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
 
             <textarea
               ref={textareaRef}
@@ -1818,6 +1905,108 @@ ${activeHint.revenueMetricAngle}
         </div>
       )}
 
+      {/* 60-Second "How to Say It" Answer Script Modal (Feature 3) */}
+      {showScriptModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="w-full max-w-2xl rounded-3xl border border-stone-200 bg-white p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-purple-600 text-white font-extrabold text-sm shadow-xs">
+                  🎙️
+                </span>
+                <div>
+                  <h3 className="text-base font-extrabold text-stone-900">
+                    60-Second Master Answer Script
+                  </h3>
+                  <p className="text-xs text-purple-700 font-semibold">
+                    STAR Framework • Concise &amp; Authoritative
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowScriptModal(false)}
+                className="rounded-xl border border-stone-200 p-2 text-stone-400 hover:bg-stone-100 hover:text-stone-700 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5 text-xs">
+              {/* Monologue Box */}
+              <div className="rounded-2xl border border-purple-200 bg-purple-50/50 p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-purple-950 flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-purple-600" />
+                    Spoken Monologue (Ready to Read Out Loud)
+                  </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(scriptFramework.full60SecondMonologue);
+                      setCopiedScript(true);
+                      setTimeout(() => setCopiedScript(false), 2000);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-purple-700 border border-purple-200 hover:bg-purple-100 transition shadow-2xs"
+                  >
+                    {copiedScript ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+                    <span>{copiedScript ? 'Copied' : 'Copy Script'}</span>
+                  </button>
+                </div>
+                <p className="text-stone-800 text-xs leading-relaxed font-serif italic bg-white p-3 rounded-xl border border-purple-100 shadow-2xs">
+                  {scriptFramework.full60SecondMonologue}
+                </p>
+              </div>
+
+              {/* 4-Step Breakdown */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                <div className="rounded-xl border border-stone-200 bg-stone-50 p-3 space-y-1">
+                  <span className="font-extrabold text-stone-900 text-[11px]">1. The 15s Opening Stance:</span>
+                  <p className="text-stone-600 text-[11px] leading-relaxed">{scriptFramework.openingHook15s}</p>
+                </div>
+
+                <div className="rounded-xl border border-stone-200 bg-stone-50 p-3 space-y-1">
+                  <span className="font-extrabold text-stone-900 text-[11px]">2. The 30s 3-Layer Solution:</span>
+                  <p className="text-stone-600 text-[11px] leading-relaxed">{scriptFramework.technicalArchitecture30s}</p>
+                </div>
+
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 space-y-1">
+                  <span className="font-extrabold text-emerald-900 text-[11px]">3. Your Novalyte Proof Point:</span>
+                  <p className="text-emerald-950 text-[11px] leading-relaxed">{scriptFramework.founderProofPoint15s}</p>
+                </div>
+
+                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-1">
+                  <span className="font-extrabold text-amber-900 text-[11px]">4. The Proactive Gotcha:</span>
+                  <p className="text-amber-950 text-[11px] leading-relaxed">{scriptFramework.proactiveEdgeCaseGotcha}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-stone-100">
+              <span className="text-[11px] text-stone-500 font-medium">
+                Tip: Speak naturally with pauses between the 3 architecture layers.
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setAnswerText((prev) => prev ? `${prev}\n\n${scriptFramework.full60SecondMonologue}` : scriptFramework.full60SecondMonologue);
+                    setShowScriptModal(false);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-purple-700 transition"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  <span>Insert into Answer Workspace</span>
+                </button>
+                <button
+                  onClick={() => setShowScriptModal(false)}
+                  className="rounded-xl border border-stone-200 px-4 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-100 transition"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Target Company Application Dossier Modal */}
       {showCompanyDrawer && selectedCompany && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 backdrop-blur-xs p-4 animate-in fade-in">
@@ -1847,6 +2036,56 @@ ${activeHint.revenueMetricAngle}
             </div>
 
             <div className="space-y-4 text-xs">
+              {/* De-Jargonized Executive Briefing (Feature 5) */}
+              {companyBriefing && (
+                <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/70 via-white to-amber-50/40 p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-extrabold text-amber-950">
+                    <Lightbulb className="h-4 w-4 text-amber-600" />
+                    <span>Company De-Jargonizer: 3-Minute Executive Briefing</span>
+                  </div>
+
+                  <div className="space-y-1 text-xs">
+                    <span className="font-bold text-stone-900">What They Actually Do (Zero Buzzwords):</span>
+                    <p className="text-stone-700 leading-relaxed bg-white/90 p-2.5 rounded-xl border border-amber-100">
+                      {companyBriefing.whatTheyActuallyDo}
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs">
+                    <span className="font-bold text-rose-900 flex items-center gap-1">
+                      <ShieldAlert className="h-3.5 w-3.5 text-rose-600" />
+                      The 2 Things Their Hiring Manager is Secretly Anxious About:
+                    </span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {companyBriefing.theTwoHiringAnxieties.map((anxiety, idx) => (
+                        <div key={idx} className="rounded-xl bg-rose-50/70 p-2.5 border border-rose-100 text-rose-950 text-[11px] leading-relaxed">
+                          <span className="font-bold text-rose-800">#{idx + 1}:</span> {anxiety}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs pt-1 border-t border-amber-100">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-indigo-950">🎙️ Your 10-Second Interview Opening Hook:</span>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(companyBriefing.openingInterviewHook);
+                          alert('Opening hook copied!');
+                        }}
+                        className="text-[10px] font-bold text-indigo-600 hover:underline flex items-center gap-1"
+                      >
+                        <Copy className="h-3 w-3" />
+                        <span>Copy Hook</span>
+                      </button>
+                    </div>
+                    <div className="rounded-xl bg-indigo-950 text-indigo-100 p-3 italic text-[11px] leading-relaxed">
+                      {companyBriefing.openingInterviewHook}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Match Rationale */}
               <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50/80 to-purple-50/50 p-4 space-y-1.5">
                 <div className="font-extrabold text-indigo-950 flex items-center gap-1.5">

@@ -15,6 +15,8 @@ import { InterviewReflectionModal } from '@/components/InterviewReflectionModal'
 import { GuidedActionGuide } from '@/components/GuidedActionGuide';
 import { PanicButton } from '@/components/PanicButton';
 import { DeepWorkAudio } from '@/components/DeepWorkAudio';
+import { JargonBuster } from '@/components/JargonBuster';
+import { BigFiveArchitectures } from '@/components/BigFiveArchitectures';
 import { MockInterviewSession, CandidateAnswerRecord, SessionReport } from '@/lib/types';
 import { loadSavedSessions, saveSession } from '@/lib/storage';
 import { Maximize2, Minimize2, Flame, Sparkles, X, Target } from 'lucide-react';
@@ -232,6 +234,10 @@ export default function Home() {
               initialCompanyId={targetCompanyId}
             />
           )}
+
+          {activeTab === 'jargon-buster' && <JargonBuster />}
+
+          {activeTab === 'big-five' && <BigFiveArchitectures />}
 
           {activeTab === 'scenarios' && <ScenarioLab />}
 
