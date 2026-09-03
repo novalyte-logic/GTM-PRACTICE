@@ -17,7 +17,11 @@ import {
   Eye,
   EyeOff,
   AlertTriangle,
-  Info
+  Info,
+  X,
+  ArrowRight,
+  ChevronRight,
+  ExternalLink
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -35,6 +39,116 @@ import { CandidateAnswerRecord } from '@/lib/types';
 interface BenchmarkRadarProps {
   completedAnswers: CandidateAnswerRecord[];
 }
+
+export interface CompetencyPillarDetail {
+  id: string;
+  pillarName: string;
+  shortTitle: string;
+  comparisonTradeoff: string;
+  technicalMetrics: string[];
+  seniorStaffExpectation: string;
+  failureModePrevented: string;
+  interviewDrillScenario: string;
+  typicalQuestions: string[];
+}
+
+export const BENCHMARK_COMPETENCY_DETAILS: CompetencyPillarDetail[] = [
+  {
+    id: 'arch',
+    pillarName: 'System Architecture',
+    shortTitle: 'Ingress & Webhook Scale',
+    comparisonTradeoff: 'API Latency vs. Synchronous Database Persistence',
+    technicalMetrics: [
+      'P99 API Ingress Latency: Responding <150ms with HTTP 202 Accepted via SQS/Kafka buffering',
+      'Idempotent Event Processing: UUID / Redis Redlock with 24-hour expiration to prevent duplicate billing or routing',
+      'Dead-Letter Queue (DLQ): Automated exponential backoff with jitter (1s, 2s, 4s, 8s, max 5 retries)',
+      'Distributed Token-Bucket Throttling: Protecting downstream SaaS CRM APIs from burst exhaustion'
+    ],
+    seniorStaffExpectation: 'Decouples high-volume webhook ingestion from slow downstream CRM writes using message queues, guaranteeing zero dropped leads during 10,000 req/min flash surges.',
+    failureModePrevented: 'Synchronous blocking CRM calls causing HTTP 504 Gateway Timeouts and lost sales leads.',
+    interviewDrillScenario: 'A sudden marketing webinar pushes 45,000 attendee webhooks in under 3 minutes. The candidate must architect an asynchronous buffer that preserves order and prevents downstream CRM throttling.',
+    typicalQuestions: [
+      'How do you design a webhook receiver that survives a 50x ingress traffic spike?',
+      'Explain how idempotency keys prevent duplicate contacts when a webhook provider retries automatically.'
+    ]
+  },
+  {
+    id: 'crm',
+    pillarName: 'CRM & Data Hygiene',
+    shortTitle: 'CRM Schema & Governors',
+    comparisonTradeoff: 'CRM Data Schema Normalization vs. SOQL Governor Limits',
+    technicalMetrics: [
+      'Relational Schema Normalization: Lead-to-Account-to-Opportunity relationship integrity and custom field governance',
+      'Compound Deduplication Keys: Matching normalized corporate domain + personal email + tax ID before record creation',
+      'SOQL Governor Limits: Staying strictly below Salesforce 100 SOQL queries / 150 DML per execution context',
+      'Bi-Directional Race Conditions: Monotonic timestamp validation and field-level change history to break circular loops'
+    ],
+    seniorStaffExpectation: 'Designs relational schemas that optimize for both reporting speed and API efficiency, leveraging Bulk API 2.0 and Apex batching to prevent governor limit crashes.',
+    failureModePrevented: 'Hitting System.LimitException: Too many SOQL queries: 101, halting enterprise sales operations.',
+    interviewDrillScenario: 'Salesforce and HubSpot bi-directional sync creating infinite modification loops on the Opportunity object. The candidate must design a loop-breaker using updated_by webhook audit headers.',
+    typicalQuestions: [
+      'How do you handle composite key deduplication across 2 million records without timing out SOQL?',
+      'How do you detect and break a ping-pong update loop between HubSpot and Salesforce?'
+    ]
+  },
+  {
+    id: 'enrichment',
+    pillarName: 'Enrichment & Modern Stack',
+    shortTitle: 'Waterfall & Outbound Tooling',
+    comparisonTradeoff: 'Multi-Vendor Waterfall Match Rates vs. API Credit Burn Rate',
+    technicalMetrics: [
+      'Multi-Vendor Waterfall Routing: Tiered cascades (Clay -> Apollo -> ZoomInfo -> Dropcontact) based on fill-rate',
+      'Cache-First Invalidation: Storing enriched data in Redis/Postgres with 60-day TTL before issuing billable vendor calls',
+      'HTTP 429 Rate-Limit Recovery: Client-side leaky-bucket queueing with backoff headers (Retry-After)',
+      'Regulatory Compliance: GDPR/CAN-SPAM global unsubscribe synchronization across all outbound outreach engines'
+    ],
+    seniorStaffExpectation: 'Architects multi-vendor waterfalls that maximize verified contact coverage (>85%) while slashing external API costs by >40% through intelligent hierarchical caching.',
+    failureModePrevented: 'Burning $15,000 in third-party API credits within hours due to looping enrichment on unqualified spam leads.',
+    interviewDrillScenario: 'Targeting 200,000 cold enterprise accounts: candidate routes free domain validation first, calling premium mobile phone enrichment only for qualified VP/C-suite titles.',
+    typicalQuestions: [
+      'Walk me through the architecture of a 4-tier waterfall enrichment system in Clay/n8n.',
+      'How do you prevent duplicate API charges when multiple SDRs import the same lead simultaneously?'
+    ]
+  },
+  {
+    id: 'ai',
+    pillarName: 'Applied AI & Workflows',
+    shortTitle: 'Applied AI & LLM Pipelines',
+    comparisonTradeoff: 'LLM Natural Language Extraction vs. Strict Deterministic Schemas',
+    technicalMetrics: [
+      'Structured JSON Enforcement: Zod / JSON Schema validation on all LLM outputs before CRM record mutation',
+      'Inference Latency Budget: Choosing Flash/mini models (<1.2s P95) for real-time lead routing vs Pro models for offline audits',
+      'Prompt Engineering & Few-Shot Calibration: Eliminating hallucinations on company sizing and buying intent signals',
+      'Human-in-the-Loop (HITL) Fallbacks: Triggering RevOps manual review queues for confidence scores <80%'
+    ],
+    seniorStaffExpectation: 'Builds fault-tolerant generative AI workflows with strict guardrails, never allowing raw unvalidated LLM output to mutate production CRM records directly.',
+    failureModePrevented: 'AI hallucinations creating bogus company names or setting pipeline ARR to $0 due to unparsed JSON.',
+    interviewDrillScenario: 'An inbound web inquiry contains conversational text. The candidate uses Gemini Flash with JSON mode to extract budget, timing, and authority, with regex fallback if the LLM API fails.',
+    typicalQuestions: [
+      'How do you guarantee that an LLM agent never writes hallucinated data into your Salesforce fields?',
+      'How do you optimize LLM token cost when processing 10,000 inbound emails daily?'
+    ]
+  },
+  {
+    id: 'comm',
+    pillarName: 'Executive Communication',
+    shortTitle: 'Revenue Impact & SLAs',
+    comparisonTradeoff: 'Technical Architecture Purity vs. Business Speed-to-Lead & ARR Impact',
+    technicalMetrics: [
+      'Speed-to-Lead Optimization: Connecting system latency reduction to 21x higher sales qualification rates (<5 min response)',
+      'Revenue Leakage Quantification: Framing technical fixes in terms of pipeline ARR recovered per quarter',
+      'Cross-Functional Stakeholder Defense: Explaining trade-offs between Sales agility and RevOps data integrity',
+      'Blameless Post-Mortem Rigor: Documenting root cause, business impact, and P0 preventative engineering'
+    ],
+    seniorStaffExpectation: 'Communicates technical decisions through the lens of revenue metrics (CAC payback, speed-to-lead, win rates), winning cross-functional buy-in from Sales and Engineering leadership.',
+    failureModePrevented: 'Engineers spending 6 months building an over-engineered microservice while sales reps churn due to manual lead entry.',
+    interviewDrillScenario: 'The VP of Sales demands immediate instant lead routing. The candidate persuasively defends a 30-second deduplication buffer by showing that duplicate calls burn 15% of sales capacity.',
+    typicalQuestions: [
+      'How do you explain the business ROI of refactoring your CRM integration to a non-technical CRO?',
+      'How do you handle a disagreement between Sales asking for speed and RevOps demanding strict data validation?'
+    ]
+  }
+];
 
 // Tooltip declared outside component to comply with React Hooks best practices
 const CustomRadarTooltip = ({ active, payload }: any) => {
@@ -62,6 +176,14 @@ const CustomRadarTooltip = ({ active, payload }: any) => {
 export const BenchmarkRadar: React.FC<BenchmarkRadarProps> = ({ completedAnswers }) => {
   const [showCommunityBenchmark, setShowCommunityBenchmark] = useState<boolean>(true);
   const [selectedCohortId, setSelectedCohortId] = useState<string>('all-cohorts');
+  const [selectedCompetency, setSelectedCompetency] = useState<CompetencyPillarDetail | null>(null);
+
+  // Helper to find competency by pillar name
+  const getCompetencyByName = (name: string) => {
+    return BENCHMARK_COMPETENCY_DETAILS.find(
+      (c) => c.pillarName.toLowerCase() === name.toLowerCase() || name.toLowerCase().includes(c.pillarName.toLowerCase())
+    ) || BENCHMARK_COMPETENCY_DETAILS[0];
+  };
 
   // Calculate aggregate metrics across answers
   const total = completedAnswers.length;
@@ -239,7 +361,12 @@ export const BenchmarkRadar: React.FC<BenchmarkRadarProps> = ({ completedAnswers
                 <PolarGrid stroke="#e5e5e5" />
                 <PolarAngleAxis 
                   dataKey="pillarName" 
-                  tick={{ fill: '#44403c', fontSize: 10, fontWeight: 600 }} 
+                  tick={{ fill: '#44403c', fontSize: 10, fontWeight: 600, cursor: 'pointer' }}
+                  onClick={(e: any) => {
+                    if (e && e.value) {
+                      setSelectedCompetency(getCompetencyByName(e.value));
+                    }
+                  }}
                 />
                 <PolarRadiusAxis 
                   angle={30} 
@@ -282,6 +409,51 @@ export const BenchmarkRadar: React.FC<BenchmarkRadarProps> = ({ completedAnswers
                 />
               </RadarChart>
             </ResponsiveContainer>
+          </div>
+
+          {/* Interactive Radar Nodes with 'i' Tooltip Buttons */}
+          <div className="space-y-2 pt-2 border-t border-stone-100">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="font-bold text-stone-700 uppercase tracking-wider flex items-center gap-1.5">
+                <Info className="h-3.5 w-3.5 text-indigo-600" />
+                <span>Competency Nodes (Click &apos;i&apos; for measurement specs):</span>
+              </span>
+              <span className="text-[10px] text-stone-400 font-mono hidden sm:inline">
+                API latency vs. CRM schema
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {BENCHMARK_COMPETENCY_DETAILS.map((comp) => {
+                const isSelected = selectedCompetency?.id === comp.id;
+                return (
+                  <button
+                    key={comp.id}
+                    onClick={() => setSelectedCompetency(comp)}
+                    className={`flex items-center justify-between p-2 rounded-xl border text-left transition shadow-2xs group ${
+                      isSelected
+                        ? 'border-indigo-500 bg-indigo-50/70 text-indigo-950 font-bold ring-1 ring-indigo-500/30'
+                        : 'border-stone-200 bg-stone-50/70 hover:bg-stone-100/90 text-stone-700 hover:border-stone-300'
+                    }`}
+                  >
+                    <div className="truncate pr-1.5">
+                      <div className="text-xs font-bold text-stone-900 truncate flex items-center gap-1">
+                        <span>{comp.pillarName}</span>
+                      </div>
+                      <div className="text-[10px] text-stone-500 truncate group-hover:text-stone-700">
+                        {comp.comparisonTradeoff}
+                      </div>
+                    </div>
+                    <span 
+                      className="shrink-0 flex items-center justify-center h-5 w-5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200 text-[11px] font-bold group-hover:bg-indigo-600 group-hover:text-white transition shadow-2xs"
+                      title={`Inspect ${comp.pillarName} technical criteria`}
+                    >
+                      i
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -431,6 +603,144 @@ export const BenchmarkRadar: React.FC<BenchmarkRadarProps> = ({ completedAnswers
           </div>
         ))}
       </div>
+
+      {/* Competency Deep-Dive Explanatory Tooltip Modal */}
+      {selectedCompetency && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="w-full max-w-2xl rounded-2xl border border-stone-200 bg-white p-6 shadow-2xl space-y-5 text-stone-900">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between border-b border-stone-100 pb-3.5">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-bold text-indigo-700 border border-indigo-200">
+                    <Info className="h-3.5 w-3.5 text-indigo-600" />
+                    Technical Competency Specification
+                  </span>
+                  <span className="text-xs text-stone-400">Benchmark Radar Node</span>
+                </div>
+                <h3 className="text-base font-bold text-stone-900">
+                  {selectedCompetency.pillarName}
+                </h3>
+                <div className="text-xs font-semibold text-indigo-700 flex items-center gap-1.5">
+                  <Target className="h-3.5 w-3.5" />
+                  <span>Measured Trade-Off: {selectedCompetency.comparisonTradeoff}</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setSelectedCompetency(null)}
+                className="rounded-xl p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-800 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1 text-xs">
+              {/* Technical Metrics Measured */}
+              <div className="space-y-2">
+                <div className="font-bold text-stone-800 uppercase tracking-wider text-[10px]">
+                  Specific Technical Competencies Measured:
+                </div>
+                <div className="rounded-xl border border-stone-200 bg-stone-50/80 p-3.5 space-y-2">
+                  {selectedCompetency.technicalMetrics.map((metric, idx) => (
+                    <div key={idx} className="flex items-start gap-2 text-stone-800 leading-relaxed">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                      <span>{metric}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Senior / Staff Bar & Failure Mode */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3.5 space-y-1.5">
+                  <div className="font-bold text-indigo-950 flex items-center gap-1.5">
+                    <Award className="h-4 w-4 text-indigo-600" />
+                    <span>Senior / Staff Hiring Expectation:</span>
+                  </div>
+                  <p className="text-indigo-950/90 leading-relaxed text-[11px]">
+                    {selectedCompetency.seniorStaffExpectation}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3.5 space-y-1.5">
+                  <div className="font-bold text-rose-950 flex items-center gap-1.5">
+                    <AlertTriangle className="h-4 w-4 text-rose-600" />
+                    <span>Critical System Failure Mode Avoided:</span>
+                  </div>
+                  <p className="text-rose-950/90 leading-relaxed text-[11px]">
+                    {selectedCompetency.failureModePrevented}
+                  </p>
+                </div>
+              </div>
+
+              {/* Realistic Interview Scenario */}
+              <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3.5 space-y-1.5">
+                <div className="font-bold text-amber-950 flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4 text-amber-600" />
+                  <span>Realistic Interview Drill Evaluation Scenario:</span>
+                </div>
+                <p className="text-amber-950/90 leading-relaxed text-[11px]">
+                  {selectedCompetency.interviewDrillScenario}
+                </p>
+              </div>
+
+              {/* Sample Questions */}
+              <div className="space-y-1.5">
+                <div className="font-bold text-stone-700 uppercase tracking-wider text-[10px]">
+                  Common Calibration Questions:
+                </div>
+                <div className="space-y-1 text-stone-600 text-[11px]">
+                  {selectedCompetency.typicalQuestions.map((q, idx) => (
+                    <div key={idx} className="flex items-start gap-1.5">
+                      <span className="font-bold text-stone-400">•</span>
+                      <span className="italic">&ldquo;{q}&rdquo;</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer Controls */}
+            <div className="flex items-center justify-between pt-3 border-t border-stone-100">
+              <div className="flex items-center gap-1.5">
+                {BENCHMARK_COMPETENCY_DETAILS.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setSelectedCompetency(c)}
+                    className={`h-2 rounded-full transition-all ${
+                      c.id === selectedCompetency.id ? 'w-6 bg-indigo-600' : 'w-2 bg-stone-200 hover:bg-stone-300'
+                    }`}
+                    title={c.pillarName}
+                  />
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const currentIndex = BENCHMARK_COMPETENCY_DETAILS.findIndex(c => c.id === selectedCompetency.id);
+                    const nextIndex = (currentIndex + 1) % BENCHMARK_COMPETENCY_DETAILS.length;
+                    setSelectedCompetency(BENCHMARK_COMPETENCY_DETAILS[nextIndex]);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-100 transition shadow-2xs"
+                >
+                  <span>Next Competency</span>
+                  <ChevronRight className="h-3.5 w-3.5 text-stone-500" />
+                </button>
+
+                <button
+                  onClick={() => setSelectedCompetency(null)}
+                  className="rounded-xl bg-stone-900 px-4 py-1.5 text-xs font-bold text-white hover:bg-stone-800 transition shadow-2xs"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

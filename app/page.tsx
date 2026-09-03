@@ -14,6 +14,7 @@ import { GTMCheatSheet } from '@/components/GTMCheatSheet';
 import { InterviewReflectionModal } from '@/components/InterviewReflectionModal';
 import { GuidedActionGuide } from '@/components/GuidedActionGuide';
 import { PanicButton } from '@/components/PanicButton';
+import { DeepWorkAudio } from '@/components/DeepWorkAudio';
 import { MockInterviewSession, CandidateAnswerRecord, SessionReport } from '@/lib/types';
 import { loadSavedSessions, saveSession } from '@/lib/storage';
 import { Maximize2, Minimize2, Flame, Sparkles, X, Target } from 'lucide-react';
@@ -189,6 +190,9 @@ export default function Home() {
               </div>
 
               <div className="flex items-center gap-2">
+                {/* Deep Work Audio Web Audio Synthesizer */}
+                <DeepWorkAudio />
+
                 {/* Panic Button in Focus Mode */}
                 <PanicButton currentTrack={activeSession.track} />
 

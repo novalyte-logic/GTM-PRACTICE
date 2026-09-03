@@ -38,7 +38,9 @@ import {
   BarChart3,
   Dices,
   X,
-  HeartHandshake
+  HeartHandshake,
+  StickyNote,
+  Trash2
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { 
@@ -109,17 +111,37 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
   const [answerText, setAnswerText] = useState<string>('');
   const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
   const [currentEvaluation, setCurrentEvaluation] = useState<AnswerEvaluation | null>(null);
+
+  // 'Retry this question' Feedback Loop State
+  const [isRetrying, setIsRetrying] = useState<boolean>(false);
+  const [previousAttemptEvaluation, setPreviousAttemptEvaluation] = useState<AnswerEvaluation | null>(null);
+  const [retryScoreDelta, setRetryScoreDelta] = useState<number | null>(null);
   
-  // Pomodoro Focus Timer State
+  // Pomodoro Focus Timer & 2-Minute Pacing Alert State
   const [timerMode, setTimerMode] = useState<TimerMode>('25m-focus');
   const [timerDurationSeconds, setTimerDurationSeconds] = useState<number>(25 * 60);
   const [timerRemainingSeconds, setTimerRemainingSeconds] = useState<number>(25 * 60);
   const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
   const [elapsedQuestionSeconds, setElapsedQuestionSeconds] = useState<number>(0);
+  const [showPacingAlert, setShowPacingAlert] = useState<boolean>(false);
+  const hasTriggeredTwoMinAlertRef = useRef<boolean>(false);
 
-  // Audio Speech Recognition
+  // Real-time Speech-to-Text Transcription State
+  const [isDictationMode, setIsDictationMode] = useState<boolean>(false);
+  const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [isListening, setIsListening] = useState<boolean>(false);
+  const [isSpeechSupported, setIsSpeechSupported] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+    }
+    return true;
+  });
   const [recognitionError, setRecognitionError] = useState<string | null>(null);
+  const isDictationModeRef = useRef<boolean>(false);
+
+  // DOM Refs for auto-scrolling on Retry
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   
   // AI Hint State
   const [showHintModal, setShowHintModal] = useState<boolean>(false);
@@ -130,6 +152,47 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
   // Wildcard Production Constraint State
   const [wildcardConstraint, setWildcardConstraint] = useState<WildcardConstraint | null>(null);
   const [showWildcardPicker, setShowWildcardPicker] = useState<boolean>(false);
+
+  // Persistent Quick Technical Notes Scratchpad
+  const [quickNotes, setQuickNotes] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem('gtm_simulator_quick_notes') || '';
+      } catch {
+        return '';
+      }
+    }
+    return '';
+  });
+  const [notesExpanded, setNotesExpanded] = useState<boolean>(true);
+  const [copiedNotes, setCopiedNotes] = useState<boolean>(false);
+
+  const handleNotesChange = (text: string) => {
+    setQuickNotes(text);
+    try {
+      localStorage.setItem('gtm_simulator_quick_notes', text);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleCopyNotes = () => {
+    if (!quickNotes) return;
+    navigator.clipboard.writeText(quickNotes);
+    setCopiedNotes(true);
+    setTimeout(() => setCopiedNotes(false), 2000);
+  };
+
+  const handleClearNotes = () => {
+    if (quickNotes && window.confirm('Clear your scratchpad notes?')) {
+      handleNotesChange('');
+    }
+  };
+
+  const handleInsertNoteSnippet = (snippet: string) => {
+    const updated = quickNotes ? `${quickNotes}\n• ${snippet}` : `• ${snippet}`;
+    handleNotesChange(updated);
+  };
 
   const recognitionRef = useRef<any>(null);
 
@@ -174,14 +237,44 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
     });
   };
 
-  // Pomodoro countdown timer effect
+  // Gentle 2-minute pacing alert audio chime using Web Audio API
+  const playTwoMinuteAlertChime = () => {
+    if (typeof window !== 'undefined' && ('AudioContext' in window || (window as any).webkitAudioContext)) {
+      try {
+        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+        const ctx = new AudioCtxClass();
+        // Warm melodic marimba triad: F4 (349.23Hz) -> A4 (440Hz) -> C5 (523.25Hz)
+        const notes = [349.23, 440.0, 523.25];
+        notes.forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.12);
+
+          gain.gain.setValueAtTime(0.001, ctx.currentTime + idx * 0.12);
+          gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + idx * 0.12 + 0.03);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.12 + 0.65);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc.start(ctx.currentTime + idx * 0.12);
+          osc.stop(ctx.currentTime + idx * 0.12 + 0.7);
+        });
+      } catch (e) {
+        console.error('Failed to play pacing alert chime', e);
+      }
+    }
+  };
+
+  // Pomodoro countdown timer effect with gentle 2-minute pacing alert
   useEffect(() => {
     let interval: any = null;
     if (isTimerRunning) {
       interval = setInterval(() => {
         setTimerRemainingSeconds((prev) => {
           if (prev <= 1) {
-            // Play gentle web audio chime
+            // Play gentle web audio completion chime
             if (typeof window !== 'undefined' && 'AudioContext' in window) {
               try {
                 const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -203,6 +296,14 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
             setIsTimerRunning(false);
             return 0;
           }
+
+          // Gentle 2-minute pacing alert: triggers when timer crosses 2 minutes (120 seconds) remaining
+          if ((prev === 121 || (prev <= 120 && prev > 115)) && !hasTriggeredTwoMinAlertRef.current) {
+            hasTriggeredTwoMinAlertRef.current = true;
+            setShowPacingAlert(true);
+            playTwoMinuteAlertChime();
+          }
+
           return prev - 1;
         });
         setElapsedQuestionSeconds((prev) => prev + 1);
@@ -220,10 +321,19 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
     setTimerDurationSeconds(seconds);
     setTimerRemainingSeconds(seconds);
     setIsTimerRunning(false);
+    hasTriggeredTwoMinAlertRef.current = false;
+    setShowPacingAlert(false);
   };
 
   const handleAddTimerMinutes = (minutes: number) => {
-    setTimerRemainingSeconds((prev) => prev + minutes * 60);
+    setTimerRemainingSeconds((prev) => {
+      const updated = prev + minutes * 60;
+      if (updated > 120) {
+        setShowPacingAlert(false);
+        hasTriggeredTwoMinAlertRef.current = false;
+      }
+      return updated;
+    });
     setTimerDurationSeconds((prev) => prev + minutes * 60);
   };
 
@@ -240,6 +350,9 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
 
   const switchQuestion = (index: number) => {
     setCurrentQuestionIndex(index);
+    setIsRetrying(false);
+    setRetryScoreDelta(null);
+    setPreviousAttemptEvaluation(null);
     const targetQ = filteredQuestions[index] || questionsList[index];
     const existing = completedAnswers.find((a) => a.questionId === targetQ?.id);
     if (existing) {
@@ -255,7 +368,7 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
     }
   };
 
-  // Web Speech API for voice dictation
+  // Web Speech API for real-time speech-to-text dictation
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -266,25 +379,51 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
         recognition.lang = 'en-US';
 
         recognition.onresult = (event: any) => {
-          let finalTranscript = '';
+          let finalChunk = '';
+          let interimChunk = '';
           for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const transcript = event.results[i][0].transcript;
             if (event.results[i].isFinal) {
-              finalTranscript += event.results[i][0].transcript + ' ';
+              finalChunk += transcript + ' ';
+            } else {
+              interimChunk += transcript;
             }
           }
-          if (finalTranscript) {
-            setAnswerText((prev) => (prev ? `${prev} ${finalTranscript}` : finalTranscript));
+
+          if (finalChunk.trim()) {
+            setAnswerText((prev) => {
+              const trimmed = prev.trim();
+              return trimmed ? `${trimmed} ${finalChunk.trim()}` : finalChunk.trim();
+            });
           }
+          setInterimTranscript(interimChunk);
         };
 
         recognition.onerror = (event: any) => {
-          console.warn('Speech recognition error', event.error);
-          setRecognitionError(event.error);
-          setIsListening(false);
+          console.warn('Speech recognition status:', event.error);
+          if (event.error === 'not-allowed') {
+            setRecognitionError('Microphone permission blocked. Please allow mic permissions in your browser.');
+            setIsListening(false);
+            setIsDictationMode(false);
+            isDictationModeRef.current = false;
+          } else if (event.error !== 'no-speech') {
+            setRecognitionError(`Recognition message: ${event.error}`);
+          }
         };
 
         recognition.onend = () => {
-          setIsListening(false);
+          // If dictation mode is still enabled by the user, keep listening seamlessly
+          if (isDictationModeRef.current) {
+            try {
+              recognition.start();
+              setIsListening(true);
+            } catch {
+              // already running or reconnecting
+            }
+          } else {
+            setIsListening(false);
+            setInterimTranscript('');
+          }
         };
 
         recognitionRef.current = recognition;
@@ -292,17 +431,26 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
     }
   }, []);
 
-  const toggleVoiceRecording = () => {
-    if (!recognitionRef.current) {
-      alert('Speech recognition is not supported in this browser. Please type your response.');
+  const toggleDictationMode = () => {
+    if (!isSpeechSupported || !recognitionRef.current) {
+      alert('Speech recognition is not supported in this browser. Please use Chrome/Edge or type your response.');
       return;
     }
 
-    if (isListening) {
-      recognitionRef.current.stop();
+    if (isDictationMode) {
+      isDictationModeRef.current = false;
+      setIsDictationMode(false);
       setIsListening(false);
+      setInterimTranscript('');
+      try {
+        recognitionRef.current.stop();
+      } catch (err) {
+        console.error(err);
+      }
     } else {
       setRecognitionError(null);
+      isDictationModeRef.current = true;
+      setIsDictationMode(true);
       try {
         recognitionRef.current.start();
         setIsListening(true);
@@ -310,6 +458,22 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
         console.error('Failed to start speech recognition', err);
       }
     }
+  };
+
+  // Retry question handlers
+  const handleStartRetry = () => {
+    if (!currentEvaluation) return;
+    setPreviousAttemptEvaluation(currentEvaluation);
+    setIsRetrying(true);
+    // Smooth scroll to workspace and focus
+    workspaceRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 250);
+  };
+
+  const handleCancelRetry = () => {
+    setIsRetrying(false);
   };
 
   // Request real-time structural AI Hint
@@ -434,7 +598,14 @@ ${activeHint.revenueMetricAngle}
       const evaluation: AnswerEvaluation = await res.json();
       setCurrentEvaluation(evaluation);
 
-      // Save answer record
+      // Calculate score delta if this was a question retry
+      if (isRetrying && previousAttemptEvaluation) {
+        const delta = evaluation.overallScore - previousAttemptEvaluation.overallScore;
+        setRetryScoreDelta(delta);
+      }
+      setIsRetrying(false);
+
+      // Save answer record to update session and recalibrate overall score
       const record: CandidateAnswerRecord = {
         questionId: activeQuestion.id,
         question: activeQuestion,
@@ -622,14 +793,24 @@ ${activeHint.revenueMetricAngle}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column (5 cols): Active Question & Pomodoro Focus Timer */}
         <div className="lg:col-span-5 space-y-5">
-          {/* Pomodoro Focus Timer Card */}
-          <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm space-y-3">
+          {/* Pomodoro Focus Timer Card with Visual Countdown & Pacing Alert */}
+          <div className={`rounded-2xl border p-4 shadow-sm space-y-3 transition-all duration-300 ${
+            timerRemainingSeconds <= 120 && timerRemainingSeconds > 0 && isTimerRunning
+              ? 'border-amber-300 bg-amber-50/40 ring-2 ring-amber-300/60 shadow-amber-100/50'
+              : 'border-stone-200 bg-white'
+          }`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Timer className="h-4 w-4 text-amber-600" />
+                <Timer className={`h-4 w-4 ${timerRemainingSeconds <= 120 && isTimerRunning ? 'text-amber-600 animate-pulse' : 'text-amber-600'}`} />
                 <span className="text-xs font-bold text-stone-900 uppercase tracking-wider">
                   Technical Drill Focus Timer
                 </span>
+                {timerRemainingSeconds <= 120 && timerRemainingSeconds > 0 && isTimerRunning && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-extrabold text-amber-900 border border-amber-300 animate-pulse">
+                    <Clock className="h-3 w-3 text-amber-700" />
+                    2m Wrap-Up Alert
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -659,9 +840,17 @@ ${activeHint.revenueMetricAngle}
               </div>
             </div>
 
-            <div className="flex items-center justify-between bg-stone-50 rounded-xl p-3 border border-stone-200">
+            <div className={`flex items-center justify-between rounded-xl p-3 border transition-colors ${
+              timerRemainingSeconds <= 120 && timerRemainingSeconds > 0 && isTimerRunning
+                ? 'bg-white border-amber-300'
+                : 'bg-stone-50 border-stone-200'
+            }`}>
               <div className="flex items-center gap-3">
-                <div className="text-2xl font-mono font-bold text-stone-900">
+                <div className={`text-2xl font-mono font-bold tracking-tight transition-colors ${
+                  timerRemainingSeconds <= 120 && timerRemainingSeconds > 0 && isTimerRunning
+                    ? 'text-amber-600 animate-pulse'
+                    : 'text-stone-900'
+                }`}>
                   {formatTime(timerRemainingSeconds)}
                 </div>
                 <div className="text-[11px] text-stone-500">
@@ -678,6 +867,14 @@ ${activeHint.revenueMetricAngle}
                 >
                   {isTimerRunning ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                   <span>{isTimerRunning ? 'Pause' : 'Start'}</span>
+                </button>
+
+                <button
+                  onClick={() => handleAddTimerMinutes(2)}
+                  title="Add 2 minutes buffer"
+                  className="rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-100 p-1.5 text-amber-900 text-xs font-bold transition"
+                >
+                  +2m
                 </button>
 
                 <button
@@ -701,10 +898,57 @@ ${activeHint.revenueMetricAngle}
             {/* Visual Progress Bar */}
             <div className="h-1.5 w-full bg-stone-100 rounded-full overflow-hidden">
               <div
-                className="h-full bg-amber-500 transition-all duration-300"
+                className={`h-full transition-all duration-300 ${
+                  timerRemainingSeconds <= 120 && timerRemainingSeconds > 0 && isTimerRunning
+                    ? 'bg-amber-500 animate-pulse'
+                    : 'bg-amber-500'
+                }`}
                 style={{ width: `${timerProgress}%` }}
               />
             </div>
+
+            {/* Gentle 2-Minute Pacing Alert Notification */}
+            {showPacingAlert && timerRemainingSeconds > 0 && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-3.5 space-y-2 animate-in fade-in slide-in-from-top-1">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-amber-500 text-white font-bold text-xs mt-0.5">
+                      ⏳
+                    </span>
+                    <div>
+                      <div className="text-xs font-bold text-amber-950">
+                        Pacing Alert: 2 Minutes Remaining in Suggested Window!
+                      </div>
+                      <p className="text-[11px] text-amber-900 leading-snug mt-0.5">
+                        Wrap up your core architecture and transition to governor limits, edge cases, and business ROI metrics to finish on time.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowPacingAlert(false)}
+                    className="text-amber-600 hover:text-amber-950 p-0.5 rounded transition"
+                    title="Dismiss Alert"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1 border-t border-amber-200/80">
+                  <button
+                    onClick={() => handleAddTimerMinutes(2)}
+                    className="inline-flex items-center gap-1 rounded-lg bg-white border border-amber-300 px-2.5 py-1 text-[11px] font-bold text-amber-900 hover:bg-amber-100 transition shadow-2xs"
+                  >
+                    <span>+2m Extension</span>
+                  </button>
+                  <button
+                    onClick={() => setShowPacingAlert(false)}
+                    className="text-[11px] font-semibold text-amber-800 hover:underline"
+                  >
+                    Got it, wrap up answer
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Target Company Active Spotlight Card */}
@@ -973,8 +1217,8 @@ ${activeHint.revenueMetricAngle}
         {/* Right Column (7 cols): Candidate Answer Workspace & AI Rubric Debrief */}
         <div className="lg:col-span-7 space-y-5">
           {/* Answer Workspace */}
-          <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+          <div ref={workspaceRef} className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-3">
               <div className="flex items-center gap-2">
                 <StepTooltip stepNumber={3} badgeLabel="Step 3: Structure Solution" />
                 <Cpu className="h-4 w-4 text-indigo-600" />
@@ -984,21 +1228,30 @@ ${activeHint.revenueMetricAngle}
               </div>
 
               <div className="flex items-center gap-2">
+                {/* Real-Time Speech-to-Text Transcription Toggle */}
                 <button
-                  onClick={toggleVoiceRecording}
-                  className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition shadow-sm ${
-                    isListening
-                      ? 'border-rose-300 bg-rose-50 text-rose-700 animate-pulse'
-                      : 'border-stone-200 bg-stone-50 text-stone-700 hover:bg-stone-100'
+                  onClick={toggleDictationMode}
+                  className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition shadow-2xs ${
+                    isDictationMode
+                      ? 'border-rose-400 bg-rose-50 text-rose-800 ring-2 ring-rose-300 animate-pulse'
+                      : 'border-stone-200 bg-stone-50 text-stone-700 hover:bg-stone-100 hover:text-stone-900'
                   }`}
+                  title={isDictationMode ? 'Click to stop live dictation' : 'Enable real-time speech-to-text dictation'}
                 >
-                  {isListening ? <Mic className="h-3.5 w-3.5 text-rose-600" /> : <MicOff className="h-3.5 w-3.5" />}
-                  <span>{isListening ? 'Recording Audio...' : 'Voice Dictation'}</span>
+                  {isDictationMode ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-rose-600 animate-ping" />
+                      <Mic className="h-3.5 w-3.5 text-rose-600" />
+                    </span>
+                  ) : (
+                    <MicOff className="h-3.5 w-3.5 text-stone-500" />
+                  )}
+                  <span>{isDictationMode ? 'Dictating Thoughts...' : 'Speech-to-Text (Dictate)'}</span>
                 </button>
 
                 <button
                   onClick={() => setAnswerText('')}
-                  className="p-1.5 text-stone-400 hover:text-stone-700"
+                  className="p-1.5 text-stone-400 hover:text-stone-700 transition"
                   title="Clear text"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
@@ -1006,7 +1259,132 @@ ${activeHint.revenueMetricAngle}
               </div>
             </div>
 
+            {/* Real-Time Live Speech-to-Text Transcription Bar */}
+            {isDictationMode && (
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/80 p-3 space-y-2 animate-in fade-in">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    {/* Soundwave animation */}
+                    <div className="flex items-center gap-0.5 h-3.5">
+                      <span className="w-1 bg-indigo-600 rounded-full animate-bounce [animation-delay:-0.3s] h-3" />
+                      <span className="w-1 bg-indigo-600 rounded-full animate-bounce [animation-delay:-0.15s] h-4" />
+                      <span className="w-1 bg-indigo-600 rounded-full animate-bounce h-2" />
+                      <span className="w-1 bg-indigo-600 rounded-full animate-bounce [animation-delay:-0.2s] h-3.5" />
+                    </div>
+                    <span className="text-xs font-bold text-indigo-950">
+                      Real-Time Speech-to-Text Active
+                    </span>
+                    <span className="text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded-full border border-indigo-200">
+                      Speak freely — words transcribe live into your answer
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setAnswerText((prev) => (prev ? `${prev.trim()}\n• ` : '• '))}
+                      className="rounded-lg bg-white border border-indigo-200 px-2 py-0.5 text-[10px] font-bold text-indigo-800 hover:bg-indigo-50 shadow-2xs"
+                      title="Insert bullet point"
+                    >
+                      + Bullet (•)
+                    </button>
+                    <button
+                      onClick={() => setAnswerText((prev) => `${prev.trim()}\n\n`)}
+                      className="rounded-lg bg-white border border-indigo-200 px-2 py-0.5 text-[10px] font-bold text-indigo-800 hover:bg-indigo-50 shadow-2xs"
+                      title="Insert new paragraph"
+                    >
+                      ¶ Paragraph
+                    </button>
+                    <button
+                      onClick={toggleDictationMode}
+                      className="rounded-lg bg-rose-100 border border-rose-200 px-2 py-0.5 text-[10px] font-bold text-rose-800 hover:bg-rose-200"
+                    >
+                      Stop Mic
+                    </button>
+                  </div>
+                </div>
+
+                {/* Real-Time Live Transcript Preview */}
+                <div className="rounded-lg bg-white p-2.5 border border-indigo-100 text-xs min-h-[36px] flex items-center">
+                  {interimTranscript ? (
+                    <span className="text-indigo-900 italic font-medium">
+                      &ldquo;{interimTranscript}&rdquo; <span className="inline-block w-1.5 h-3 bg-indigo-600 ml-1 animate-pulse" />
+                    </span>
+                  ) : (
+                    <span className="text-stone-400 text-[11px]">
+                      Listening for speech... Dictate your system architecture, Clay waterfalls, idempotency guards, and edge cases.
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Question Revision & Retry Banner (When user clicks 'Retry This Question') */}
+            {isRetrying && previousAttemptEvaluation && (
+              <div className="rounded-xl border border-indigo-300 bg-indigo-50/90 p-3.5 space-y-2.5 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-2xs">
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </span>
+                    <div>
+                      <div className="text-xs font-bold text-indigo-950">
+                        Revision Loop Active: Retrying Question
+                      </div>
+                      <div className="text-[11px] text-indigo-800">
+                        Initial Score: <span className="font-bold text-stone-900">{previousAttemptEvaluation.overallScore}/100 ({previousAttemptEvaluation.letterGrade})</span> • Address the feedback rubric below to recalibrate your session average.
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleCancelRetry}
+                    className="text-stone-400 hover:text-stone-700 p-1"
+                    title="Cancel Retry"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                {previousAttemptEvaluation.blindSpotsAndMissedEdgeCases?.length > 0 && (
+                  <div className="rounded-lg bg-white/90 p-2.5 border border-indigo-200 text-xs space-y-1">
+                    <span className="font-bold text-amber-900 flex items-center gap-1 text-[11px]">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                      Key Blind Spots to Address in Your Revision:
+                    </span>
+                    <ul className="list-disc pl-4 space-y-0.5 text-stone-700 text-[11px]">
+                      {previousAttemptEvaluation.blindSpotsAndMissedEdgeCases.map((bs, i) => (
+                        <li key={i}>{bs}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-indigo-200/60">
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <button
+                      onClick={() => setAnswerText('')}
+                      className="font-bold text-stone-600 hover:text-stone-900 underline"
+                    >
+                      Clear to re-type / re-record from scratch
+                    </button>
+                    <span className="text-stone-300">•</span>
+                    <span className="text-stone-500">
+                      Re-evaluation will overwrite this question&apos;s score and recalculate overall session average.
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={handleCancelRetry}
+                    className="text-[11px] font-semibold text-stone-500 hover:text-stone-800"
+                  >
+                    Cancel Revision
+                  </button>
+                </div>
+              </div>
+            )}
+
             <textarea
+              ref={textareaRef}
               value={answerText}
               onChange={(e) => setAnswerText(e.target.value)}
               placeholder="Outline your end-to-end technical architecture, API integration sequence, SQL deduplication strategy, edge-case guards, and business outcomes..."
@@ -1024,10 +1402,18 @@ ${activeHint.revenueMetricAngle}
                 <button
                   onClick={handleEvaluateAnswer}
                   disabled={isEvaluating || !answerText.trim()}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-700 transition disabled:opacity-50"
+                  className={`inline-flex items-center gap-1.5 rounded-xl px-5 py-2 text-xs font-bold text-white shadow-sm transition disabled:opacity-50 ${
+                    isRetrying ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700'
+                  }`}
                 >
-                  <Send className="h-3.5 w-3.5" />
-                  <span>{isEvaluating ? 'Evaluating Architectural Rigor...' : 'Submit for Evaluation'}</span>
+                  {isRetrying ? <RotateCcw className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
+                  <span>
+                    {isEvaluating
+                      ? 'Evaluating Architectural Rigor...'
+                      : isRetrying
+                      ? 'Submit Revised Answer & Update Score'
+                      : 'Submit for Evaluation'}
+                  </span>
                 </button>
               </div>
             </div>
@@ -1036,6 +1422,37 @@ ${activeHint.revenueMetricAngle}
           {/* AI Rubric Debrief & Benchmark Evaluation */}
           {currentEvaluation && (
             <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm space-y-5 animate-in fade-in">
+              {/* Question Retried & Score Recalibrated Notification Banner */}
+              {retryScoreDelta !== null && previousAttemptEvaluation && (
+                <div className="rounded-xl border border-emerald-300 bg-emerald-50/90 p-3.5 flex flex-wrap items-center justify-between gap-3 animate-in fade-in">
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-xs">
+                      <Sparkles className="h-4 w-4" />
+                    </span>
+                    <div>
+                      <div className="text-xs font-extrabold text-emerald-950 flex items-center gap-2">
+                        <span>Question Retried &amp; Session Score Recalibrated!</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          retryScoreDelta >= 0 ? 'bg-emerald-200 text-emerald-900' : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {retryScoreDelta >= 0 ? `+${retryScoreDelta}% Gain` : `${retryScoreDelta}%`}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-900 mt-0.5">
+                        Previous Attempt: <span className="font-semibold">{previousAttemptEvaluation.overallScore}% ({previousAttemptEvaluation.letterGrade})</span> → Re-evaluated Score: <span className="font-bold">{currentEvaluation.overallScore}% ({currentEvaluation.letterGrade})</span>. Overall session average updated.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleStartRetry}
+                    className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-bold text-emerald-900 hover:bg-emerald-100 transition shadow-2xs"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    <span>Retry Again</span>
+                  </button>
+                </div>
+              )}
+
               {/* Score Header */}
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 pb-4">
                 <div>
@@ -1048,6 +1465,16 @@ ${activeHint.revenueMetricAngle}
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {/* 'Retry this question' Button in Scorecard Header */}
+                  <button
+                    onClick={handleStartRetry}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 transition shadow-2xs"
+                    title="Re-record or revise your technical answer to address blind spots and update your overall score"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5 text-indigo-600" />
+                    <span>Retry This Question</span>
+                  </button>
+
                   <div className="rounded-xl bg-stone-50 border border-stone-200 px-3 py-1.5 text-center">
                     <div className="text-[10px] text-stone-500 uppercase font-semibold">Percentile</div>
                     <div className="text-xs font-bold text-stone-900">
@@ -1141,23 +1568,35 @@ ${activeHint.revenueMetricAngle}
 
               {/* Conclude Session / Debrief Trigger Actions */}
               <div className="pt-3 border-t border-stone-100 flex flex-wrap items-center justify-between gap-2">
-                <button
-                  onClick={() => {
-                    setAnswerText('');
-                    setCurrentEvaluation(null);
-                    setElapsedQuestionSeconds(0);
-                    setWildcardConstraint(null);
-                    if (currentQuestionIndex < filteredQuestions.length - 1) {
-                      switchQuestion(currentQuestionIndex + 1);
-                    } else {
-                      handleGenerateNewQuestion();
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-100 transition shadow-2xs"
-                >
-                  <span>Next Question Drill</span>
-                  <ArrowRight className="h-3.5 w-3.5 text-stone-500" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* 'Retry this question' Button in Footer */}
+                  <button
+                    onClick={handleStartRetry}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-300 bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-indigo-700 transition shadow-2xs"
+                    title="Retry this question to target feedback blind spots and update your overall score"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5 text-white" />
+                    <span>Retry This Question</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setAnswerText('');
+                      setCurrentEvaluation(null);
+                      setElapsedQuestionSeconds(0);
+                      setWildcardConstraint(null);
+                      if (currentQuestionIndex < filteredQuestions.length - 1) {
+                        switchQuestion(currentQuestionIndex + 1);
+                      } else {
+                        handleGenerateNewQuestion();
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-stone-200 bg-stone-50 px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-100 transition shadow-2xs"
+                  >
+                    <span>Next Question Drill</span>
+                    <ArrowRight className="h-3.5 w-3.5 text-stone-500" />
+                  </button>
+                </div>
 
                 <div className="flex items-center gap-2">
                   <StepTooltip stepNumber={5} badgeLabel="Step 5: Calibrate & Reflect" />
@@ -1182,6 +1621,101 @@ ${activeHint.revenueMetricAngle}
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Persistent Quick Technical Notes & Live Scratchpad */}
+      <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-xs space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-2.5">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700">
+              <StickyNote className="h-4 w-4" />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold text-stone-900">
+                  Live Technical Scratchpad &amp; Notes
+                </h4>
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Auto-saved locally
+                </span>
+              </div>
+              <p className="text-[11px] text-stone-500">
+                Jot down scratch equations, schema fields, webhook payloads, or whiteboard notes during your simulation without leaving the page.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            {/* Quick action buttons */}
+            <button
+              onClick={handleCopyNotes}
+              disabled={!quickNotes}
+              className="inline-flex items-center gap-1 rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs font-semibold text-stone-700 hover:bg-stone-100 transition disabled:opacity-40 shadow-2xs"
+              title="Copy scratchpad notes to clipboard"
+            >
+              {copiedNotes ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3 text-stone-500" />}
+              <span>{copiedNotes ? 'Copied' : 'Copy'}</span>
+            </button>
+
+            {quickNotes && (
+              <button
+                onClick={handleClearNotes}
+                className="inline-flex items-center gap-1 rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs font-semibold text-stone-500 hover:text-rose-600 hover:bg-rose-50 transition shadow-2xs"
+                title="Clear notes"
+              >
+                <Trash2 className="h-3 w-3" />
+                <span>Clear</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => setNotesExpanded(!notesExpanded)}
+              className="rounded-lg p-1 text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition"
+              title={notesExpanded ? 'Collapse notes' : 'Expand notes'}
+            >
+              {notesExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Quick Technical Keywords / Snippet Helper Chips */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Quick Insert:</span>
+          {[
+            'Idempotency-Key: UUIDv4 + Redis TTL 24h',
+            'SOQL Limit: 100 queries / 150 DML context',
+            'Queue: Ingress Webhook -> SQS/Kafka -> Worker',
+            'DLQ: Exponential backoff (1s, 2s, 4s, max 5)',
+            'Waterfall: Clay -> Apollo -> ZoomInfo cascade',
+            'Lamport Timestamp / Updated-By loop breaker'
+          ].map((snippet, idx) => (
+            <button
+              key={idx}
+              onClick={() => handleInsertNoteSnippet(snippet)}
+              className="rounded-md border border-stone-200 bg-stone-50 hover:bg-indigo-50 hover:border-indigo-200 px-2 py-0.5 text-[10px] font-mono text-stone-600 hover:text-indigo-700 transition"
+            >
+              + {snippet.split(':')[0]}
+            </button>
+          ))}
+        </div>
+
+        {/* Text Area */}
+        <div className="relative">
+          <textarea
+            value={quickNotes}
+            onChange={(e) => handleNotesChange(e.target.value)}
+            rows={notesExpanded ? 4 : 2}
+            placeholder="Jot down quick technical notes, architectural equations, schema fields, webhook payloads, or whiteboard ideas here... Your notes stay saved across drills."
+            className="w-full rounded-xl border border-stone-200 bg-stone-50/50 p-3 text-xs font-mono text-stone-800 placeholder:text-stone-400 focus:border-indigo-500 focus:bg-white focus:outline-none transition leading-relaxed shadow-inner"
+          />
+          <div className="flex items-center justify-between text-[10px] text-stone-400 px-1 pt-1">
+            <span>
+              {quickNotes.trim() ? `${quickNotes.trim().split(/\s+/).length} words • ${quickNotes.length} chars` : 'Scratchpad empty'}
+            </span>
+            <span>Persisted in browser storage</span>
+          </div>
         </div>
       </div>
 
