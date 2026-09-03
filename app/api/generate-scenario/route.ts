@@ -1,21 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGeminiClient, RESUME_CONTEXT } from "@/lib/gemini";
-import { GTMScenario, DifficultyLevel, GTMRoleProfile } from "@/lib/types";
+import { GTMScenario, DifficultyLevel, GTMRoleProfile, TargetCompanyApplication } from "@/lib/types";
+import { getTargetApplication } from "@/lib/target-companies";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { category, difficulty, roleProfile, customTopic } = body;
+    const { category, difficulty, roleProfile, customTopic, targetCompanyId, targetCompany: providedApp } = body;
+
+    const targetApp: TargetCompanyApplication | undefined =
+      providedApp || (targetCompanyId ? getTargetApplication(targetCompanyId) : undefined);
 
     const selectedDifficulty: DifficultyLevel = difficulty || 'Senior GTM Engineer';
-    const selectedRole: GTMRoleProfile = roleProfile || 'GTM Systems Engineer';
-    const selectedCategory = category || 'SaaS Integration & Deployment Incident';
+    const selectedRole: GTMRoleProfile = (targetApp ? targetApp.role : roleProfile) || 'GTM Systems Engineer';
+    const selectedCategory = targetApp 
+      ? `${targetApp.company} Production Architecture Incident`
+      : (category || 'SaaS Integration & Deployment Incident');
 
     const ai = getGeminiClient();
+
+    const companyDirectives = targetApp ? `
+TARGET COMPANY FOR THIS SCENARIO:
+- Company Name: ${targetApp.company}
+- Applied Position: ${targetApp.role}
+- Tech Stack & Ecosystem: ${targetApp.techStack.join(', ')}
+- Context & Overview: ${targetApp.summary}
+
+SCENARIO GENERATION INSTRUCTION:
+Base this incident specifically on a critical operational breakdown at ${targetApp.company} involving their core stack (${targetApp.techStack.join(', ')}).
+` : '';
 
     const prompt = `
 You are a Principal GTM Systems Engineer and Technical Scenario Designer.
 Generate a realistic, high-stakes technical troubleshooting scenario question faced by a ${selectedRole} (${selectedDifficulty}).
+
+${companyDirectives}
 
 TOPIC/CATEGORY:
 ${customTopic ? `Custom Topic: ${customTopic}` : `Category: ${selectedCategory}`}

@@ -42,6 +42,19 @@ export default function Home() {
   
   const [activeReport, setActiveReport] = useState<SessionReport | null>(null);
   const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
+  const [targetCompanyId, setTargetCompanyId] = useState<string | undefined>(undefined);
+
+  // Read URL params (e.g. ?company=valency) on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const companyParam = params.get('company') || params.get('companyId');
+      if (companyParam) {
+        setTargetCompanyId(companyParam);
+        setActiveTab('simulator');
+      }
+    }
+  }, []);
 
   // Global Keyboard shortcuts for Focus Mode (Alt+F to toggle, Escape to exit)
   useEffect(() => {
@@ -97,7 +110,7 @@ export default function Home() {
 
     setIsGeneratingReport(true);
     try {
-      const res = await fetch('/app/api/generate-report', {
+      const res = await fetch('/api/generate-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -212,6 +225,7 @@ export default function Home() {
               completedAnswers={activeSession.answers}
               audioEnabled={audioEnabled}
               onOpenReflection={() => setShowReflectionModal(true)}
+              initialCompanyId={targetCompanyId}
             />
           )}
 

@@ -55,6 +55,7 @@ import {
 import { CURATED_QUESTIONS, WILDCARD_CONSTRAINTS } from '@/lib/mock-data';
 import { StepTooltip } from '@/components/StepTooltip';
 import { PanicButton } from '@/components/PanicButton';
+import { TARGET_APPLICATIONS, getTargetApplication, TargetCompanyApplication } from '@/lib/target-companies';
 
 interface InterviewSimulatorProps {
   onSaveAnswer: (record: CandidateAnswerRecord) => void;
@@ -62,6 +63,7 @@ interface InterviewSimulatorProps {
   completedAnswers: CandidateAnswerRecord[];
   audioEnabled: boolean;
   onOpenReflection?: () => void;
+  initialCompanyId?: string;
 }
 
 type TimerMode = '25m-focus' | '15m-sprint' | '5m-drill' | '5m-review';
@@ -72,7 +74,26 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
   completedAnswers,
   audioEnabled,
   onOpenReflection,
+  initialCompanyId,
 }) => {
+  // Target Company State
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | 'none'>(initialCompanyId || 'none');
+  const [showCompanyDrawer, setShowCompanyDrawer] = useState<boolean>(false);
+
+  const selectedCompany: TargetCompanyApplication | undefined = 
+    selectedCompanyId !== 'none' ? getTargetApplication(selectedCompanyId) : undefined;
+
+  // Sync initialCompanyId when prop changes
+  useEffect(() => {
+    if (initialCompanyId) {
+      setSelectedCompanyId(initialCompanyId);
+      const app = getTargetApplication(initialCompanyId);
+      if (app) {
+        setRoleProfile(app.role as any);
+      }
+    }
+  }, [initialCompanyId]);
+
   // Filters & Role Profile State
   const [selectedTrack, setSelectedTrack] = useState<InterviewTrack | 'all'>('all');
   const [difficulty, setDifficulty] = useState<DifficultyLevel>('Senior GTM Engineer');
@@ -303,13 +324,13 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
 
     setIsGeneratingHint(true);
     try {
-      const res = await fetch('/app/api/generate-hint', {
+      const res = await fetch('/api/generate-hint', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: activeQuestion,
           difficulty,
-          roleProfile,
+          roleProfile: selectedCompany ? (selectedCompany.role as any) : roleProfile,
           wildcard: wildcardConstraint,
         }),
       });
@@ -358,14 +379,16 @@ ${activeHint.revenueMetricAngle}
   const handleGenerateNewQuestion = async () => {
     setIsGeneratingQuestion(true);
     try {
-      const res = await fetch('/app/api/generate-question', {
+      const res = await fetch('/api/generate-question', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           track: selectedTrack === 'all' ? 'system-architecture' : selectedTrack,
           difficulty,
-          roleProfile,
+          roleProfile: selectedCompany ? (selectedCompany.role as any) : roleProfile,
           companyArchetype,
+          targetCompanyId: selectedCompany?.id,
+          targetCompany: selectedCompany,
         }),
       });
       const newQuestion: InterviewQuestion = await res.json();
@@ -392,11 +415,15 @@ ${activeHint.revenueMetricAngle}
 
     setIsEvaluating(true);
     try {
-      const res = await fetch('/app/api/evaluate-answer', {
+      const res = await fetch('/api/evaluate-answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: activeQuestion,
+          question: {
+            ...activeQuestion,
+            targetCompanyId: selectedCompany?.id || activeQuestion.targetCompanyId,
+            targetCompany: selectedCompany || activeQuestion.targetCompany,
+          },
           candidateAnswer: answerText,
           track: activeQuestion.track,
           difficulty: activeQuestion.difficulty || difficulty,
@@ -468,6 +495,42 @@ ${activeHint.revenueMetricAngle}
 
           {/* Role Profile & Difficulty Selectors */}
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* Target Applied Company Selector */}
+            <div className="flex items-center gap-1.5 bg-indigo-50/80 border border-indigo-200 rounded-xl px-2.5 py-1 text-xs">
+              <Target className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
+              <span className="text-indigo-950 font-bold">Target Company:</span>
+              <select
+                value={selectedCompanyId}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedCompanyId(val);
+                  if (val !== 'none') {
+                    const app = getTargetApplication(val);
+                    if (app) {
+                      setRoleProfile(app.role as any);
+                    }
+                  }
+                }}
+                className="bg-transparent font-bold text-indigo-900 focus:outline-none cursor-pointer max-w-[210px] truncate"
+              >
+                <option value="none">🌐 General Practice (All Archetypes)</option>
+                <optgroup label="✨ High-Priority Applied Roles">
+                  {TARGET_APPLICATIONS.filter(a => a.isNew || a.ashbyQas.length > 0).map((app) => (
+                    <option key={app.id} value={app.id}>
+                      🎯 {app.company} ({app.role})
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="All Tracked Applications">
+                  {TARGET_APPLICATIONS.filter(a => !a.isNew && a.ashbyQas.length === 0).map((app) => (
+                    <option key={app.id} value={app.id}>
+                      {app.company} ({app.role})
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+
             {/* Role Profile Selector */}
             <div className="flex items-center gap-1.5 bg-stone-50 border border-stone-200 rounded-xl px-2.5 py-1 text-xs">
               <span className="text-stone-500 font-medium">Role:</span>
@@ -643,6 +706,51 @@ ${activeHint.revenueMetricAngle}
               />
             </div>
           </div>
+
+          {/* Target Company Active Spotlight Card */}
+          {selectedCompany && (
+            <div className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50/90 via-purple-50/40 to-white p-4 shadow-sm space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-600 text-white font-extrabold text-sm shadow-xs">
+                    🎯
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold text-stone-900 text-sm">{selectedCompany.company}</span>
+                      <span className="text-xs text-indigo-700 font-semibold">• {selectedCompany.role}</span>
+                    </div>
+                    <div className="text-[11px] text-stone-500 font-medium">
+                      {selectedCompany.location} {selectedCompany.compensation ? `• ${selectedCompany.compensation}` : ''}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 border border-emerald-300">
+                    {selectedCompany.matchScore}% Match
+                  </span>
+                  <button
+                    onClick={() => setShowCompanyDrawer(true)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-1 text-xs font-bold text-indigo-700 border border-indigo-200 shadow-2xs hover:bg-indigo-50 transition"
+                  >
+                    <BookOpen className="h-3.5 w-3.5 text-indigo-600" />
+                    <span>View Application Q&A ({selectedCompany.ashbyQas?.length || 0})</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Tech Stack Pills */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-indigo-100/80">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-900/70 mr-1">Stack:</span>
+                {selectedCompany.techStack.map((tech) => (
+                  <span key={tech} className="rounded-md bg-white/90 px-2 py-0.5 text-[10px] font-medium text-stone-700 border border-indigo-100 shadow-2xs">
+                    {tech}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Active Question Card */}
           <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm space-y-4">
@@ -1166,6 +1274,151 @@ ${activeHint.revenueMetricAngle}
                 </button>
                 <button
                   onClick={() => setShowHintModal(false)}
+                  className="rounded-xl border border-stone-200 px-4 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-100 transition"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Target Company Application Dossier Modal */}
+      {showCompanyDrawer && selectedCompany && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-3xl border border-stone-200 bg-white p-6 shadow-2xl space-y-5">
+            <div className="flex items-start justify-between border-b border-stone-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-600 text-white font-extrabold text-base shadow-sm">
+                  🎯
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-extrabold text-stone-900">{selectedCompany.company}</h3>
+                    <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 border border-emerald-300">
+                      {selectedCompany.matchScore}% Match
+                    </span>
+                  </div>
+                  <p className="text-xs text-indigo-700 font-semibold">{selectedCompany.role} • {selectedCompany.category}</p>
+                  <p className="text-[11px] text-stone-500">{selectedCompany.location} • {selectedCompany.compensation}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCompanyDrawer(false)}
+                className="rounded-xl border border-stone-200 p-2 text-stone-400 hover:bg-stone-100 hover:text-stone-700 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              {/* Match Rationale */}
+              <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50/80 to-purple-50/50 p-4 space-y-1.5">
+                <div className="font-extrabold text-indigo-950 flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
+                  <span>Why Jamil Matches This Role</span>
+                </div>
+                <p className="text-indigo-900 leading-relaxed">{selectedCompany.matchRationale}</p>
+              </div>
+
+              {/* Stack and Highlights */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-stone-200 bg-stone-50/80 p-4 space-y-2">
+                  <div className="font-bold text-stone-900">Required Tech Stack & Tools</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedCompany.techStack.map((tech) => (
+                      <span key={tech} className="rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-stone-800 border border-stone-200 shadow-2xs">
+                        {tech}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-stone-200 bg-stone-50/80 p-4 space-y-2">
+                  <div className="font-bold text-stone-900">Key Deliverables & Responsibilities</div>
+                  <ul className="space-y-1 text-stone-600 pl-4 list-disc">
+                    {selectedCompany.keyHighlights.slice(0, 3).map((highlight, idx) => (
+                      <li key={idx} className="leading-normal">{highlight}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              {/* Submitted Ashby Q&As */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between border-b border-stone-100 pb-1">
+                  <span className="font-extrabold text-stone-900 text-sm flex items-center gap-2">
+                    <BookOpen className="h-4 w-4 text-indigo-600" />
+                    Submitted Application Q&As ({selectedCompany.ashbyQas?.length || 0})
+                  </span>
+                  <span className="text-[11px] text-stone-500">Exact answers submitted in your application</span>
+                </div>
+
+                {selectedCompany.ashbyQas && selectedCompany.ashbyQas.length > 0 ? (
+                  <div className="space-y-3">
+                    {selectedCompany.ashbyQas.map((qa, idx) => (
+                      <div key={idx} className="rounded-2xl border border-stone-200 bg-white p-4 shadow-2xs space-y-2">
+                        <div className="font-bold text-stone-900 flex items-start justify-between gap-2">
+                          <span>Q: {qa.question}</span>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(qa.answer);
+                              alert('Answer copied to clipboard!');
+                            }}
+                            className="shrink-0 p-1 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-lg transition"
+                            title="Copy Answer"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <div className="rounded-xl bg-stone-50 p-3 border border-stone-100 text-stone-700 leading-relaxed">
+                          {qa.answer}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-stone-200 p-6 text-center text-stone-500">
+                    No custom Ashby free-response questions for this role. General ATS application profile active.
+                  </div>
+                )}
+              </div>
+
+              {/* Coaching Pro Tip */}
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3.5 text-emerald-950 flex items-start gap-2.5">
+                <Lightbulb className="h-4 w-4 text-emerald-700 shrink-0 mt-0.5" />
+                <div className="text-[11px] leading-relaxed">
+                  <span className="font-bold text-emerald-900">Live Round Defense Strategy:</span>{' '}
+                  When answering questions for {selectedCompany.company}, tie your architecture back to your Novalyte AI experience and reinforce the exact proof points you highlighted above.
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-4 border-t border-stone-100">
+              <a
+                href={selectedCompany.applicationUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:underline"
+              >
+                <span>Open Original Job Posting</span>
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </a>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setShowCompanyDrawer(false);
+                    handleGenerateNewQuestion();
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-indigo-700 transition"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>Generate Interview Question for {selectedCompany.company}</span>
+                </button>
+                <button
+                  onClick={() => setShowCompanyDrawer(false)}
                   className="rounded-xl border border-stone-200 px-4 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-100 transition"
                 >
                   Close

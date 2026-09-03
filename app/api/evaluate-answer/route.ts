@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGeminiClient, RESUME_CONTEXT } from "@/lib/gemini";
 import { AnswerEvaluation } from "@/lib/types";
+import { getTargetApplication } from "@/lib/target-companies";
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,11 +26,32 @@ NOTE ON WILDCARD GRADING:
 The candidate was required to address this unexpected production constraint within their technical design. Grade them on how effectively and practically their architecture mitigates this specific issue without breaking the primary workflow.
 ` : '';
 
+    const targetApp = question.targetCompany || (question.targetCompanyId ? getTargetApplication(question.targetCompanyId) : undefined);
+
+    const companyEvaluationContext = targetApp ? `
+TARGET COMPANY SPECIFIC EVALUATION LENS:
+Company: ${targetApp.company}
+Role: ${targetApp.role} (${targetApp.category})
+Target Tech Stack: ${targetApp.techStack.join(', ')}
+Company Expectations & Summary: ${targetApp.summary}
+${targetApp.ashbyQas && targetApp.ashbyQas.length > 0 ? `
+CANDIDATE'S SUBMITTED APPLICATION ANSWERS:
+${targetApp.ashbyQas.map((qa: { question: string; answer: string }) => `Q: ${qa.question}\nA: ${qa.answer}`).join('\n\n')}
+` : ''}
+
+EVALUATION DIRECTIVE FOR ${targetApp.company.toUpperCase()}:
+You are grading this candidate specifically as the Hiring Lead / Founder at ${targetApp.company}.
+Evaluate whether their answer demonstrates deep familiarity with ${targetApp.company}'s tech stack (${targetApp.techStack.join(', ')}).
+Coach the candidate on how to tie their real Novalyte AI or Zendesk experience directly into winning this exact offer at ${targetApp.company}.
+` : '';
+
     const prompt = `
-You are a Principal GTM Architect and VP of RevOps at a top Tier-1 tech company conducting a high-stakes technical interview for a GTM Engineer / GTM System Engineer role.
+You are a Principal Technical Interviewer ${targetApp ? `at ${targetApp.company}` : `and VP of RevOps at a top Tier-1 tech company`} conducting a high-stakes technical interview for a ${targetApp ? targetApp.role : 'GTM Engineer'} role.
 
 CANDIDATE PROFILE (From Resume):
 ${RESUME_CONTEXT}
+
+${companyEvaluationContext}
 
 INTERVIEW QUESTION:
 Title: ${question.title}

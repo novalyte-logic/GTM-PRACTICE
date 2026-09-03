@@ -62,12 +62,34 @@ export interface AIArchitecturalHint {
   resumeStoryHook: string;
 }
 
+export interface TargetCompanyApplication {
+  id: string;
+  company: string;
+  role: string;
+  category: string;
+  location: string;
+  compensation?: string;
+  status: string;
+  isNew?: boolean;
+  matchScore: number;
+  matchRationale: string;
+  techStack: string[];
+  summary: string;
+  keyHighlights: string[];
+  whyMatches: string[];
+  risksGaps?: string[];
+  applicationUrl: string;
+  ashbyQas: Array<{ question: string; answer: string }>;
+}
+
 export interface InterviewQuestion {
   id: string;
   track: InterviewTrack;
   category: string;
   difficulty: DifficultyLevel;
   roleProfile?: GTMRoleProfile;
+  targetCompanyId?: string;
+  targetCompany?: TargetCompanyApplication;
   title: string;
   question: string;
   contextScenario?: string;
@@ -130,6 +152,8 @@ export interface MockInterviewSession {
   difficulty: DifficultyLevel;
   roleProfile?: GTMRoleProfile;
   companyArchetype: CompanyArchetype;
+  targetCompanyId?: string;
+  targetCompany?: TargetCompanyApplication;
   durationSeconds: number;
   answers: CandidateAnswerRecord[];
   averageScore: number;

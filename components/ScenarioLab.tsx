@@ -115,7 +115,7 @@ export const ScenarioLab: React.FC = () => {
   const handleGenerateScenario = async () => {
     setIsGeneratingScenario(true);
     try {
-      const res = await fetch('/app/api/generate-scenario', {
+      const res = await fetch('/api/generate-scenario', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
