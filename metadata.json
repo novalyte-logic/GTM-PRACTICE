@@ -1,0 +1,7 @@
+{
+  "name": "GTM Engineer Interview Studio",
+  "description": "Interactive GTM System Engineer interview simulator, real-world scenario technical problem-solving lab, industry benchmark evaluation, and mock session report generator tailored for Jamil Yakasai.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
