@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { GTM_FLASHCARDS } from '@/lib/flashcard-data';
 import { GTMFlashcard, FlashcardCategory } from '@/lib/types';
+import { useStorageItem } from '@/lib/useHydration';
 
 const MASTERED_CARDS_STORAGE_KEY = 'gtm_mastered_flashcards_v1';
 
@@ -35,16 +36,8 @@ export const GTMFlashcards: React.FC = () => {
   const [viewMode, setViewMode] = useState<'deck' | 'grid'>('deck');
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
 
-  // Mastered state stored in localStorage
-  const [masteredCardIds, setMasteredCardIds] = useState<string[]>(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const stored = localStorage.getItem(MASTERED_CARDS_STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
+  // Mastered state stored in localStorage via safe external store
+  const [masteredCardIds, setMasteredCardIds] = useStorageItem<string[]>(MASTERED_CARDS_STORAGE_KEY, []);
 
   // Filtered cards based on category and search
   const filteredCards = useMemo(() => {
@@ -124,17 +117,9 @@ export const GTMFlashcards: React.FC = () => {
   };
 
   const handleToggleMastered = (cardId: string) => {
-    setMasteredCardIds((prev) => {
-      const next = prev.includes(cardId) 
-        ? prev.filter((id) => id !== cardId) 
-        : [...prev, cardId];
-      try {
-        localStorage.setItem(MASTERED_CARDS_STORAGE_KEY, JSON.stringify(next));
-      } catch (e) {
-        console.error(e);
-      }
-      return next;
-    });
+    setMasteredCardIds((prev) =>
+      prev.includes(cardId) ? prev.filter((id) => id !== cardId) : [...prev, cardId]
+    );
   };
 
   const handleCopySnippet = (id: string, text: string, e: React.MouseEvent) => {

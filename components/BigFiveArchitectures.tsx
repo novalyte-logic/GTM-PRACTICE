@@ -18,6 +18,7 @@ import {
   DollarSign,
   Workflow
 } from 'lucide-react';
+import { AudioCoachPlayer } from '@/components/AudioCoachPlayer';
 
 export interface ArchitectureScenario {
   id: string;
@@ -411,10 +412,19 @@ export const BigFiveArchitectures: React.FC = () => {
           </div>
 
           {/* The Interview Question */}
-          <div className="rounded-2xl bg-amber-50/70 border border-amber-200 p-4 space-y-1">
-            <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
-              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
-              <span>The Exact Question Interviewers Ask:</span>
+          <div className="rounded-2xl bg-amber-50/70 border border-amber-200 p-4 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-amber-900">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                <span>The Exact Question Interviewers Ask:</span>
+              </div>
+              <AudioCoachPlayer
+                topicOrText={activeScenario.interviewerQuestionPrompt}
+                context={`Architecture scenario: ${activeScenario.title}. Category: ${activeScenario.category}. Key metrics: ${activeScenario.metricsToQuote.join(', ')}`}
+                type="question-explainer"
+                buttonLabel="🎧 Hear Question & Strategy Explained"
+                variant="compact-pill"
+              />
             </div>
             <p className="text-xs text-amber-950 italic font-medium leading-relaxed">
               {activeScenario.interviewerQuestionPrompt}
@@ -506,7 +516,7 @@ export const BigFiveArchitectures: React.FC = () => {
 
         {/* 60-Second "How to Say It" Soundbite Script */}
         <div className="rounded-2xl border border-stone-900 bg-stone-900 p-5 text-stone-100 space-y-3 shadow-sm">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-500 text-white font-bold text-xs">
                 🎙️
@@ -516,22 +526,30 @@ export const BigFiveArchitectures: React.FC = () => {
               </span>
             </div>
 
-            <button
-              onClick={handleCopyScript}
-              className="inline-flex items-center gap-1 rounded-lg bg-stone-800 hover:bg-stone-700 px-2.5 py-1 text-xs font-bold text-stone-200 transition"
-            >
-              {copiedScript ? (
-                <>
-                  <Check className="h-3.5 w-3.5 text-emerald-400" />
-                  <span className="text-emerald-400">Copied Script</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="h-3.5 w-3.5" />
-                  <span>Copy Script</span>
-                </>
-              )}
-            </button>
+            <div className="flex items-center gap-2">
+              <AudioCoachPlayer
+                topicOrText={activeScenario.interviewAnswerScript}
+                type="direct-tts"
+                buttonLabel="🔊 Play Master Script"
+                variant="inline-button"
+              />
+              <button
+                onClick={handleCopyScript}
+                className="inline-flex items-center gap-1 rounded-lg bg-stone-800 hover:bg-stone-700 px-2.5 py-1 text-xs font-bold text-stone-200 transition"
+              >
+                {copiedScript ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    <span className="text-emerald-400">Copied Script</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>Copy Script</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           <p className="text-xs leading-relaxed text-stone-200 font-serif italic bg-stone-800/80 p-3.5 rounded-xl border border-stone-700">

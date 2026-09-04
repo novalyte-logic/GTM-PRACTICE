@@ -26,6 +26,7 @@ export function saveSession(session: MockInterviewSession): void {
       existing.unshift(session);
     }
     localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(existing));
+    window.dispatchEvent(new Event('gtm-storage-sync'));
   } catch (e) {
     console.error("Failed to save session", e);
   }
@@ -37,6 +38,7 @@ export function deleteSession(sessionId: string): MockInterviewSession[] {
     const existing = loadSavedSessions();
     const filtered = existing.filter((s) => s.id !== sessionId);
     localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(filtered));
+    window.dispatchEvent(new Event('gtm-storage-sync'));
     return filtered;
   } catch (e) {
     console.error("Failed to delete session", e);
@@ -54,6 +56,7 @@ export function importSessionsFromJSON(jsonString: string): boolean {
     const parsed = JSON.parse(jsonString);
     if (Array.isArray(parsed)) {
       localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(parsed));
+      window.dispatchEvent(new Event('gtm-storage-sync'));
       return true;
     }
     return false;

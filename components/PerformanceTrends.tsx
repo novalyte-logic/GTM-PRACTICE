@@ -33,6 +33,8 @@ import { MockInterviewSession, CandidateAnswerRecord } from '@/lib/types';
 import { ConfidenceHeatmap } from './ConfidenceHeatmap';
 import { CareerMilestones } from './CareerMilestones';
 import { StepTooltip } from '@/components/StepTooltip';
+import { DifficultyScoreCorrelationChart } from './DifficultyScoreCorrelationChart';
+import { HistoricalScoreImprovementChart } from './HistoricalScoreImprovementChart';
 
 interface PerformanceTrendsProps {
   sessions: MockInterviewSession[];
@@ -162,7 +164,7 @@ export const PerformanceTrends: React.FC<PerformanceTrendsProps> = ({
   onNavigateToHistory,
   onNavigateToScenarios
 }) => {
-  const [analyticsView, setAnalyticsView] = useState<'velocity' | 'confidence' | 'milestones'>('velocity');
+  const [analyticsView, setAnalyticsView] = useState<'velocity' | 'confidence' | 'milestones' | 'difficulty-correlation' | 'improvement'>('velocity');
   const [showBenchmarkModel, setShowBenchmarkModel] = useState<boolean>(sessions.length < 2);
   const [activePillars, setActivePillars] = useState<{
     architecture: boolean;
@@ -290,14 +292,55 @@ export const PerformanceTrends: React.FC<PerformanceTrendsProps> = ({
             <Award className="h-3.5 w-3.5 text-amber-400" />
             <span>Career Milestones &amp; Badges</span>
           </button>
+
+          <button
+            id="difficulty-correlation-tab-btn"
+            onClick={() => setAnalyticsView('difficulty-correlation')}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition shadow-2xs ${
+              analyticsView === 'difficulty-correlation'
+                ? 'bg-stone-900 text-white'
+                : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+            }`}
+          >
+            <Layers className="h-3.5 w-3.5 text-purple-400" />
+            <span>Difficulty vs Score Correlation</span>
+            <span className="rounded-full bg-purple-500/20 text-purple-700 text-[10px] px-2 py-0.2 font-bold uppercase">
+              Trajectory
+            </span>
+          </button>
+          <button
+            id="historical-improvement-tab-btn"
+            onClick={() => setAnalyticsView('improvement')}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition shadow-2xs ${
+              analyticsView === 'improvement'
+                ? 'bg-stone-900 text-white'
+                : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+            }`}
+          >
+            <TrendingUp className="h-3.5 w-3.5 text-indigo-400" />
+            <span>Average Score Improvement Trajectory</span>
+            <span className="rounded-full bg-indigo-500/20 text-indigo-700 text-[10px] px-2 py-0.2 font-bold uppercase">
+              LineChart
+            </span>
+          </button>
         </div>
 
         <div className="text-xs text-stone-500 font-medium hidden md:block">
           {analyticsView === 'velocity' && 'Longitudinal pillar scoring trends'}
           {analyticsView === 'confidence' && 'Self-assessment calibration & imposter zone'}
           {analyticsView === 'milestones' && 'GTM architectural competency achievements'}
+          {analyticsView === 'difficulty-correlation' && 'Difficulty level vs score correlation & mastery trajectory'}
+          {analyticsView === 'improvement' && 'Chronological average score trajectory vs hiring bar baseline'}
         </div>
       </div>
+
+      {analyticsView === 'improvement' && (
+        <HistoricalScoreImprovementChart
+          sessions={sessions}
+          onNavigateToSimulator={onNavigateToSimulator}
+          onNavigateToHistory={onNavigateToHistory}
+        />
+      )}
 
       {analyticsView === 'confidence' && (
         <ConfidenceHeatmap 
@@ -312,6 +355,13 @@ export const PerformanceTrends: React.FC<PerformanceTrendsProps> = ({
           completedAnswers={completedAnswers}
           onNavigateToSimulator={onNavigateToSimulator}
           onNavigateToScenarios={onNavigateToScenarios}
+        />
+      )}
+
+      {analyticsView === 'difficulty-correlation' && (
+        <DifficultyScoreCorrelationChart
+          sessions={sessions}
+          showBenchmarkModel={showBenchmarkModel}
         />
       )}
 
@@ -631,6 +681,12 @@ export const PerformanceTrends: React.FC<PerformanceTrendsProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Difficulty vs Average Score Trend Correlation Graph */}
+      <DifficultyScoreCorrelationChart
+        sessions={sessions}
+        showBenchmarkModel={showBenchmarkModel}
+      />
 
       {/* Historical Milestones Breakdown */}
       <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm space-y-4">

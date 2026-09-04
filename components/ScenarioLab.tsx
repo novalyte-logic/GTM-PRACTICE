@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Activity, 
   AlertOctagon, 
@@ -51,14 +51,98 @@ export const ScenarioLab: React.FC = () => {
   const [customRole, setCustomRole] = useState<GTMRoleProfile>('GTM Systems Engineer');
   const [customDifficulty, setCustomDifficulty] = useState<DifficultyLevel>('Senior GTM Engineer');
 
+  // SLA Pressure Outage Mode States
+  const [isPressureMode, setIsPressureMode] = useState<boolean>(false);
+  const [timeLeft, setTimeLeft] = useState<number>(60);
+  const [slaBreaches, setSlaBreaches] = useState<number>(0);
+  const [scenarioAnswers, setScenarioAnswers] = useState<{ stepNumber: number; selectedOptionId: string | null; isOptimal: boolean; isSlaBreached: boolean }[]>([]);
+  const [isSlaBreachedThisStep, setIsSlaBreachedThisStep] = useState<boolean>(false);
+
   const activeScenario: GTMScenario = scenarioPool[selectedScenarioIndex] || scenarioPool[0] || REAL_WORLD_SCENARIOS[0];
   const activeStep = activeScenario.steps[currentStepIndex] || activeScenario.steps[0];
+
+  // Timer countdown and heartbeat tick effect
+  useEffect(() => {
+    let interval: any = null;
+    if (isPressureMode && !isOptionSubmitted && labMode === 'scenarios') {
+      interval = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            // Trigger automatic SLA breach submission
+            clearInterval(interval);
+            setIsOptionSubmitted(true);
+            setIsSlaBreachedThisStep(true);
+            setSlaBreaches((b) => b + 1);
+            setScenarioAnswers((prevAnswers) => [
+              ...prevAnswers,
+              {
+                stepNumber: activeStep.stepNumber,
+                selectedOptionId: null,
+                isOptimal: false,
+                isSlaBreached: true,
+              }
+            ]);
+            // Play alarm sound
+            try {
+              if (typeof window !== 'undefined' && 'AudioContext' in window) {
+                const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(220, ctx.currentTime);
+                osc.frequency.setValueAtTime(110, ctx.currentTime + 0.2);
+                gain.gain.setValueAtTime(0.15, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.6);
+              }
+            } catch (e) {
+              console.error(e);
+            }
+            return 0;
+          }
+
+          // Heartbeat tone under 15 seconds (increases frequency as clock ticks down!)
+          if (prev <= 15) {
+            try {
+              if (typeof window !== 'undefined' && 'AudioContext' in window) {
+                const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(prev % 2 === 0 ? 880 : 980, ctx.currentTime);
+                gain.gain.setValueAtTime(0.04, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.2);
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          }
+
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isPressureMode, isOptionSubmitted, labMode, activeStep.stepNumber]);
 
   const handleSelectScenario = (index: number) => {
     setSelectedScenarioIndex(index);
     setCurrentStepIndex(0);
     setSelectedOptionId(null);
     setIsOptionSubmitted(false);
+    setScenarioAnswers([]);
+    setSlaBreaches(0);
+    setIsSlaBreachedThisStep(false);
+    const targetScenario = scenarioPool[index] || scenarioPool[0];
+    const limit = targetScenario.difficulty.includes('Senior') || targetScenario.difficulty.includes('Staff') ? 45 : 60;
+    setTimeLeft(limit);
   };
 
   const handleOptionSelect = (optionId: string) => {
@@ -71,6 +155,18 @@ export const ScenarioLab: React.FC = () => {
     setIsOptionSubmitted(true);
 
     const chosenOption = activeStep.options?.find((o) => o.id === selectedOptionId);
+    
+    // Save answer
+    setScenarioAnswers((prevAnswers) => [
+      ...prevAnswers,
+      {
+        stepNumber: activeStep.stepNumber,
+        selectedOptionId,
+        isOptimal: !!chosenOption?.isOptimal,
+        isSlaBreached: false,
+      }
+    ]);
+
     if (chosenOption?.isOptimal) {
       try {
         confetti({
@@ -88,11 +184,102 @@ export const ScenarioLab: React.FC = () => {
       setCurrentStepIndex((prev) => prev + 1);
       setSelectedOptionId(null);
       setIsOptionSubmitted(false);
+      setIsSlaBreachedThisStep(false);
+      const limit = activeScenario.difficulty.includes('Senior') || activeScenario.difficulty.includes('Staff') ? 45 : 60;
+      setTimeLeft(limit);
     } else {
       // Scenario Completed
       if (!completedScenarios.includes(activeScenario.id)) {
         setCompletedScenarios((prev) => [...prev, activeScenario.id]);
       }
+
+      // Automatically construct and save a MockInterviewSession of this triage run!
+      try {
+        const totalSteps = activeScenario.steps.length;
+        const correctAnswers = scenarioAnswers.filter(a => a.isOptimal).length;
+        // Score calculation: (correct / total) * 100, penalized by SLA breaches!
+        const rawScore = totalSteps > 0 ? Math.round((correctAnswers / totalSteps) * 100) : 100;
+        const penalty = slaBreaches * 10;
+        const finalScore = Math.max(0, rawScore - penalty);
+
+        const answersMapped = activeScenario.steps.map((step, idx) => {
+          const userAns = scenarioAnswers.find(sa => sa.stepNumber === step.stepNumber);
+          const chosenOption = step.options?.find(o => o.id === userAns?.selectedOptionId);
+          
+          return {
+            questionId: `triage-step-${activeScenario.id}-${step.stepNumber}`,
+            candidateAnswer: userAns?.isSlaBreached 
+              ? `🔴 SLA BREACHED! Failed to resolve incident within time limit.` 
+              : `Selected Option: "${chosenOption?.label || 'N/A'}"\n\nTradeoff Analysis: ${chosenOption?.technicalTradeoff || 'N/A'}`,
+            timeSpentSeconds: isPressureMode ? (activeScenario.difficulty.includes('Senior') ? 45 : 60) - timeLeft : 30,
+            timestamp: new Date().toISOString(),
+            evaluation: {
+              overallScore: userAns?.isOptimal ? 100 : 0,
+              letterGrade: userAns?.isOptimal ? 'A' : 'F',
+              pillarScores: {
+                technicalArchitecture: userAns?.isOptimal ? 100 : 0,
+                crmAndDataHygiene: userAns?.isOptimal ? 100 : 0,
+                gtmBusinessContext: userAns?.isOptimal ? 100 : 0,
+                modernStackTooling: userAns?.isOptimal ? 100 : 0,
+                communicationAndClarity: userAns?.isOptimal ? 100 : 0,
+              },
+              keyStrengths: userAns?.isOptimal ? [chosenOption?.explanation || 'Optimal triage resolution path.'] : [],
+              blindSpotsAndMissedEdgeCases: !userAns?.isOptimal ? [chosenOption?.explanation || 'Incorrect architectural fix selected or response timeout.'] : [],
+              goldStandardAnswer: activeScenario.learningTakeaway,
+            } as any,
+            question: {
+              id: `triage-step-${activeScenario.id}-${step.stepNumber}`,
+              track: 'system-architecture',
+              category: activeScenario.category,
+              difficulty: activeScenario.difficulty,
+              title: `Triage Step ${step.stepNumber}: ${step.prompt.slice(0, 50)}...`,
+              question: step.prompt,
+            } as any
+          };
+        });
+
+        const newSessionRecord = {
+          id: `triage-session-${activeScenario.id}-${Date.now()}`,
+          title: `Incident Triage: ${activeScenario.title}`,
+          date: new Date().toISOString(),
+          difficulty: activeScenario.difficulty,
+          track: 'system-architecture',
+          companyArchetype: activeScenario.company,
+          durationSeconds: isPressureMode ? totalSteps * 45 : totalSteps * 30,
+          averageScore: finalScore,
+          emotionalState: isPressureMode ? 'high-adrenaline-sla-alert' : 'calm-composed',
+          confidenceAssessment: {
+            overallScore10: Math.round(finalScore / 10),
+            technicalDepth5: Math.round((correctAnswers / totalSteps) * 5),
+            executivePresence5: Math.round((correctAnswers / totalSteps) * 5),
+            edgeCaseDefense5: Math.round((correctAnswers / totalSteps) * 5) - slaBreaches,
+          },
+          answers: answersMapped,
+          reflections: `Completed production outage recovery simulator. SLA Pressure Mode was ${isPressureMode ? 'ACTIVE' : 'INACTIVE'}. Total SLA Breaches: ${slaBreaches}. Net evaluation highlights recovery resilience.`,
+          keyTakeaways: [
+            activeScenario.learningTakeaway,
+            `Incident response requires prompt decoupling and circuit breaker triggers.`
+          ]
+        };
+
+        // Write directly to local storage
+        const loadSavedSessionsRaw = () => {
+          const r = localStorage.getItem('gtm_interview_studio_sessions_v1');
+          return r ? JSON.parse(r) : [];
+        };
+        const currentSaved = loadSavedSessionsRaw();
+        currentSaved.unshift(newSessionRecord);
+        localStorage.setItem('gtm_interview_studio_sessions_v1', JSON.stringify(currentSaved));
+        window.dispatchEvent(new Event('gtm-storage-sync'));
+
+        alert(`🎉 Triage completed! Your recovery performance score was ${finalScore}%. The full Incident Report has been saved and compiled to your Session Archive & Reports dashboard!`);
+      } catch (err) {
+        console.error('Failed to auto-archive triage session', err);
+      }
+
+      // Reset answers pool for next attempt
+      setScenarioAnswers([]);
+      setSlaBreaches(0);
     }
   };
 
@@ -205,6 +392,50 @@ export const ScenarioLab: React.FC = () => {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                {/* SLA Pressure Outage Toggle Switch */}
+                <button
+                  onClick={() => {
+                    const next = !isPressureMode;
+                    setIsPressureMode(next);
+                    if (next) {
+                      const limit = activeScenario.difficulty.includes('Senior') || activeScenario.difficulty.includes('Staff') ? 45 : 60;
+                      setTimeLeft(limit);
+                      setSlaBreaches(0);
+                      setIsSlaBreachedThisStep(false);
+                      try {
+                        if (typeof window !== 'undefined' && 'AudioContext' in window) {
+                          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                          const osc1 = ctx.createOscillator();
+                          const osc2 = ctx.createOscillator();
+                          const gain = ctx.createGain();
+                          osc1.type = 'sine';
+                          osc2.type = 'sine';
+                          osc1.frequency.setValueAtTime(440, ctx.currentTime);
+                          osc2.frequency.setValueAtTime(554.37, ctx.currentTime + 0.1);
+                          gain.gain.setValueAtTime(0.04, ctx.currentTime);
+                          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+                          osc1.connect(gain);
+                          osc2.connect(gain);
+                          gain.connect(ctx.destination);
+                          osc1.start();
+                          osc2.start();
+                          osc1.stop(ctx.currentTime + 0.3);
+                          osc2.stop(ctx.currentTime + 0.3);
+                        }
+                      } catch (e) {}
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition shadow-2xs ${
+                    isPressureMode
+                      ? 'border-rose-400 bg-rose-500 text-white animate-pulse'
+                      : 'border-stone-200 bg-stone-50 text-stone-600 hover:bg-stone-100'
+                  }`}
+                  title="Enable 45s or 60s timed diagnostic windows with heartbeat chimes"
+                >
+                  <Zap className={`h-3.5 w-3.5 ${isPressureMode ? 'text-amber-200 fill-amber-200' : 'text-stone-500'}`} />
+                  <span>{isPressureMode ? '⚡ SLA Pressure Mode: ON' : '⚡ SLA Pressure Mode'}</span>
+                </button>
+
                 {/* Wildcard Injector Button */}
                 <div className="relative">
                   <button
@@ -414,10 +645,39 @@ export const ScenarioLab: React.FC = () => {
             </h4>
           </div>
 
-          <div className="text-xs text-stone-500 font-medium">
-            Progress: {Math.round(((currentStepIndex + (isOptionSubmitted ? 1 : 0)) / activeScenario.steps.length) * 100)}%
+          <div className="flex items-center gap-3">
+            {isPressureMode && (
+              <div className="flex items-center gap-2">
+                <div className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[11px] font-bold ${
+                  timeLeft <= 15
+                    ? 'bg-rose-50 border-rose-300 text-rose-700 animate-pulse'
+                    : 'bg-amber-50 border-amber-200 text-amber-800'
+                }`}>
+                  <Clock className={`h-3 w-3 ${timeLeft <= 15 ? 'text-rose-600' : 'text-amber-600'}`} />
+                  <span>SLA: {timeLeft}s</span>
+                </div>
+                {slaBreaches > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 border border-rose-300 px-2 py-0.5 text-[10px] font-extrabold text-rose-800">
+                    ⚠️ {slaBreaches} BREACH{slaBreaches > 1 ? 'ES' : ''}
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="text-xs text-stone-500 font-medium">
+              Progress: {Math.round(((currentStepIndex + (isOptionSubmitted ? 1 : 0)) / activeScenario.steps.length) * 100)}%
+            </div>
           </div>
         </div>
+
+        {/* SLA Breach Warning Banner */}
+        {isSlaBreachedThisStep && (
+          <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-rose-950 text-xs font-bold flex items-center gap-2 animate-bounce">
+            <AlertOctagon className="h-4 w-4 text-rose-600 shrink-0" />
+            <div>
+              SLA BREACH DETECTED! Your triage response exceeded the target SLA threshold. This step has been auto-submitted as unsuccessful. Review the optimal technical recovery parameters below.
+            </div>
+          </div>
+        )}
 
         {/* Diagnostic Prompt */}
         <div className="text-sm font-bold text-stone-900 leading-snug">

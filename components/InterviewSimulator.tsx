@@ -23,6 +23,7 @@ import {
   Cpu,
   Database,
   Building,
+  Brain,
   Volume2,
   ListFilter,
   ShieldAlert,
@@ -57,6 +58,7 @@ import {
 import { CURATED_QUESTIONS, WILDCARD_CONSTRAINTS } from '@/lib/mock-data';
 import { StepTooltip } from '@/components/StepTooltip';
 import { PanicButton } from '@/components/PanicButton';
+import { AudioCoachPlayer } from '@/components/AudioCoachPlayer';
 import { TARGET_APPLICATIONS, getTargetApplication, TargetCompanyApplication } from '@/lib/target-companies';
 import { generateSpokenScript, generateTeleprompterCribSheet, SpokenScriptFramework, TeleprompterCribSheet } from '@/lib/script-generator';
 import { getCompanyBriefing, CompanyExecutiveBriefing } from '@/lib/company-briefings';
@@ -81,14 +83,25 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
   initialCompanyId,
 }) => {
   // Target Company State
+  const initialApp = initialCompanyId ? getTargetApplication(initialCompanyId) : undefined;
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | 'none'>(initialCompanyId || 'none');
   const [showCompanyDrawer, setShowCompanyDrawer] = useState<boolean>(false);
+
+  // Filters & Role Profile State
+  const [selectedTrack, setSelectedTrack] = useState<InterviewTrack | 'all'>('all');
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>('Senior GTM Engineer');
+  const [roleProfile, setRoleProfile] = useState<GTMRoleProfile>(
+    (initialApp?.role as any) || 'GTM Systems Engineer'
+  );
+  const [companyArchetype, setCompanyArchetype] = useState<CompanyArchetype>('Series-B High-Growth PLG SaaS');
 
   const selectedCompany: TargetCompanyApplication | undefined = 
     selectedCompanyId !== 'none' ? getTargetApplication(selectedCompanyId) : undefined;
 
-  // Sync initialCompanyId when prop changes
-  useEffect(() => {
+  // Sync initialCompanyId when prop changes (React docs recommended pattern for prop state adjustments)
+  const [prevInitialCompany, setPrevInitialCompany] = useState<string | undefined>(initialCompanyId);
+  if (initialCompanyId !== prevInitialCompany) {
+    setPrevInitialCompany(initialCompanyId);
     if (initialCompanyId) {
       setSelectedCompanyId(initialCompanyId);
       const app = getTargetApplication(initialCompanyId);
@@ -96,13 +109,7 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
         setRoleProfile(app.role as any);
       }
     }
-  }, [initialCompanyId]);
-
-  // Filters & Role Profile State
-  const [selectedTrack, setSelectedTrack] = useState<InterviewTrack | 'all'>('all');
-  const [difficulty, setDifficulty] = useState<DifficultyLevel>('Senior GTM Engineer');
-  const [roleProfile, setRoleProfile] = useState<GTMRoleProfile>('GTM Systems Engineer');
-  const [companyArchetype, setCompanyArchetype] = useState<CompanyArchetype>('Series-B High-Growth PLG SaaS');
+  }
   
   // Question pool & active index
   const [questionsList, setQuestionsList] = useState<InterviewQuestion[]>(CURATED_QUESTIONS);
@@ -155,46 +162,36 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
   const [wildcardConstraint, setWildcardConstraint] = useState<WildcardConstraint | null>(null);
   const [showWildcardPicker, setShowWildcardPicker] = useState<boolean>(false);
 
-  // Persistent Quick Technical Notes Scratchpad
-  const [quickNotes, setQuickNotes] = useState<string>(() => {
+  // Review Mode & Selection
+  const [isReviewMode, setIsReviewMode] = useState<boolean>(false);
+  const [selectedReviewAnswerId, setSelectedReviewAnswerId] = useState<string | null>(null);
+
+  // Optional Think-Aloud Phase Timer (Optional 2-minute architectural planning timer)
+  const [isThinkAloudActive, setIsThinkAloudActive] = useState<boolean>(false);
+  const [thinkAloudRemainingSeconds, setThinkAloudRemainingSeconds] = useState<number>(120);
+  const [isThinkAloudRunning, setIsThinkAloudRunning] = useState<boolean>(false);
+
+  // Persistent Quick Technical Notes Scratchpad FOR EACH SPECIFIC QUESTION
+  const [questionNotes, setQuestionNotes] = useState<Record<string, string>>(() => {
     if (typeof window !== 'undefined') {
       try {
-        return localStorage.getItem('gtm_simulator_quick_notes') || '';
+        const stored = localStorage.getItem('gtm_simulator_question_notes');
+        return stored ? JSON.parse(stored) : {};
       } catch {
-        return '';
+        return {};
       }
     }
-    return '';
+    return {};
   });
+  const [showNotesSidebar, setShowNotesSidebar] = useState<boolean>(true);
   const [notesExpanded, setNotesExpanded] = useState<boolean>(true);
   const [copiedNotes, setCopiedNotes] = useState<boolean>(false);
 
-  const handleNotesChange = (text: string) => {
-    setQuickNotes(text);
-    try {
-      localStorage.setItem('gtm_simulator_quick_notes', text);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleCopyNotes = () => {
-    if (!quickNotes) return;
-    navigator.clipboard.writeText(quickNotes);
-    setCopiedNotes(true);
-    setTimeout(() => setCopiedNotes(false), 2000);
-  };
-
-  const handleClearNotes = () => {
-    if (quickNotes && window.confirm('Clear your scratchpad notes?')) {
-      handleNotesChange('');
-    }
-  };
-
-  const handleInsertNoteSnippet = (snippet: string) => {
-    const updated = quickNotes ? `${quickNotes}\n• ${snippet}` : `• ${snippet}`;
-    handleNotesChange(updated);
-  };
+  // Helper references to resolve any other global quickNotes usage seamlessly
+  const activeQuestionId = useMemo(() => {
+    if (typeof window === 'undefined') return 'fallback';
+    return 'active'; // Will resolve dynamically inside render
+  }, []);
 
   const recognitionRef = useRef<any>(null);
 
@@ -212,22 +209,83 @@ export const InterviewSimulator: React.FC<InterviewSimulatorProps> = ({
     questionsList[0] || 
     CURATED_QUESTIONS[0];
 
+  const activeQuestionNotes = questionNotes[activeQuestion?.id] || '';
+
+  const handleActiveNotesChange = (text: string) => {
+    if (!activeQuestion) return;
+    const updated = { ...questionNotes, [activeQuestion.id]: text };
+    setQuestionNotes(updated);
+    try {
+      localStorage.setItem('gtm_simulator_question_notes', JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleCopyNotes = () => {
+    if (!activeQuestionNotes) return;
+    navigator.clipboard.writeText(activeQuestionNotes);
+    setCopiedNotes(true);
+    setTimeout(() => setCopiedNotes(false), 2000);
+  };
+
+  const handleClearNotes = () => {
+    if (activeQuestionNotes && window.confirm('Clear your scratchpad notes for this question?')) {
+      handleActiveNotesChange('');
+    }
+  };
+
+  const handleInsertNoteSnippet = (snippet: string) => {
+    const updated = activeQuestionNotes ? `${activeQuestionNotes}\n• ${snippet}` : `• ${snippet}`;
+    handleActiveNotesChange(updated);
+  };
+
+  // Optional Think-Aloud Timer Effect (2 minutes countdown)
+  useEffect(() => {
+    let interval: any = null;
+    if (isThinkAloudRunning && isThinkAloudActive) {
+      interval = setInterval(() => {
+        setThinkAloudRemainingSeconds((prev) => {
+          if (prev <= 1) {
+            setIsThinkAloudRunning(false);
+            setIsThinkAloudActive(false);
+            setIsTimerRunning(true); // Seamlessly start the focus timer
+            
+            // Play a warm audio buzzer/chime to notify Jamil
+            if (typeof window !== 'undefined' && 'AudioContext' in window) {
+              try {
+                const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(440, ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.3);
+                gain.gain.setValueAtTime(0.2, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.6);
+              } catch {}
+            }
+            return 120;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isThinkAloudRunning, isThinkAloudActive]);
+
   // Spoken Script & Teleprompter State
   const [showScriptModal, setShowScriptModal] = useState<boolean>(false);
   const [showTeleprompter, setShowTeleprompter] = useState<boolean>(true);
   const [copiedScript, setCopiedScript] = useState<boolean>(false);
 
-  const scriptFramework: SpokenScriptFramework = useMemo(() => {
-    return generateSpokenScript(activeQuestion, selectedCompany);
-  }, [activeQuestion, selectedCompany]);
-
-  const teleprompterData: TeleprompterCribSheet = useMemo(() => {
-    return generateTeleprompterCribSheet(activeQuestion, selectedCompany);
-  }, [activeQuestion, selectedCompany]);
-
-  const companyBriefing: CompanyExecutiveBriefing | undefined = useMemo(() => {
-    return selectedCompany ? getCompanyBriefing(selectedCompany.id) : undefined;
-  }, [selectedCompany]);
+  const scriptFramework: SpokenScriptFramework = generateSpokenScript(activeQuestion, selectedCompany);
+  const teleprompterData: TeleprompterCribSheet = generateTeleprompterCribSheet(activeQuestion, selectedCompany);
+  const companyBriefing: CompanyExecutiveBriefing | undefined = 
+    selectedCompany ? getCompanyBriefing(selectedCompany.id) : undefined;
 
   // Check Adaptive Difficulty Progression
   const recentAnswerScores = completedAnswers
@@ -775,6 +833,34 @@ ${activeHint.revenueMetricAngle}
             </div>
 
             <button
+              onClick={() => {
+                setIsReviewMode(!isReviewMode);
+                if (isTimerRunning) setIsTimerRunning(false);
+                if (isThinkAloudRunning) setIsThinkAloudRunning(false);
+              }}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-bold border shadow-sm transition ${
+                isReviewMode
+                  ? 'bg-rose-600 text-white border-rose-600 hover:bg-rose-700'
+                  : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+              }`}
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              <span>{isReviewMode ? 'Exit Review' : '🔍 Review Answers'}</span>
+            </button>
+
+            <button
+              onClick={() => setShowNotesSidebar(!showNotesSidebar)}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-bold border shadow-sm transition ${
+                showNotesSidebar
+                  ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700'
+                  : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+              }`}
+            >
+              <StickyNote className="h-3.5 w-3.5" />
+              <span>📋 Notes Sidebar</span>
+            </button>
+
+            <button
               onClick={handleGenerateNewQuestion}
               disabled={isGeneratingQuestion}
               className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-indigo-700 transition disabled:opacity-50"
@@ -808,10 +894,157 @@ ${activeHint.revenueMetricAngle}
         )}
       </div>
 
-      {/* Main Two-Column Stage: Left = Question & Pomodoro, Right = Answer & Debrief */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column (5 cols): Active Question & Pomodoro Focus Timer */}
-        <div className="lg:col-span-5 space-y-5">
+      {isReviewMode ? (
+        /* PERSISTENT REVIEW WORKSPACE MODE */
+        <div className="rounded-3xl border border-rose-200 bg-rose-50/10 p-6 space-y-6 animate-in fade-in duration-300">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-rose-100 pb-4">
+            <div>
+              <h3 className="text-lg font-bold text-stone-900 flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-100 text-rose-700 text-xs">🔍</span>
+                Previous Submission Review Dashboard
+              </h3>
+              <p className="text-xs text-stone-500">
+                Read through your prior technical answers without an active timer, inspect mock evaluations, and address refactoring opportunities.
+              </p>
+            </div>
+            <button
+              onClick={() => setIsReviewMode(false)}
+              className="rounded-xl bg-stone-950 text-white px-4 py-2 text-xs font-bold hover:bg-stone-800 transition"
+            >
+              Return to Active Practice
+            </button>
+          </div>
+
+          {completedAnswers.length === 0 ? (
+            <div className="rounded-2xl border border-stone-200 bg-white p-8 text-center space-y-3">
+              <p className="text-xs text-stone-500">You haven&apos;t submitted any answers in this session yet.</p>
+              <button
+                onClick={() => setIsReviewMode(false)}
+                className="rounded-xl bg-indigo-600 text-white px-4 py-2 text-xs font-bold hover:bg-indigo-700 transition"
+              >
+                Start First Technical Drill
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Side: Past Submissions List */}
+              <div className="lg:col-span-4 space-y-2 max-h-[600px] overflow-y-auto pr-2">
+                <div className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Submitted Answers</div>
+                {completedAnswers.map((answer, index) => {
+                  const isSelected = selectedReviewAnswerId === answer.questionId || (!selectedReviewAnswerId && index === 0);
+                  return (
+                    <button
+                      key={answer.questionId}
+                      onClick={() => setSelectedReviewAnswerId(answer.questionId)}
+                      className={`w-full text-left rounded-xl p-3 border transition flex flex-col gap-1.5 ${
+                        isSelected
+                          ? 'border-rose-500 bg-rose-50/50 shadow-2xs'
+                          : 'border-stone-200 bg-white hover:bg-stone-50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-bold text-rose-700">Attempt #{index + 1}</span>
+                        <span className="rounded bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 font-mono text-[10px] text-indigo-700 font-extrabold">
+                          {answer.evaluation?.overallScore}/100 Score
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-stone-900 text-xs line-clamp-2 leading-relaxed">
+                        {answer.question?.title || "GTM Architecture Scenario"}
+                      </h4>
+                      <div className="text-[10px] text-stone-500 line-clamp-1">
+                        Role: {answer.question?.category}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Right Side: Detailed Review Area */}
+              {(() => {
+                const activeReview = completedAnswers.find((a) => a.questionId === selectedReviewAnswerId) || completedAnswers[0];
+                if (!activeReview) return null;
+                return (
+                  <div className="lg:col-span-8 space-y-4 bg-white p-5 rounded-2xl border border-stone-200 shadow-sm max-h-[600px] overflow-y-auto">
+                    <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+                      <div>
+                        <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-800 uppercase tracking-wider">
+                          Evaluation Breakdown
+                        </span>
+                        <h4 className="font-extrabold text-stone-900 text-base mt-1">
+                          {activeReview.question?.title}
+                        </h4>
+                      </div>
+                      <div className="flex flex-col items-end">
+                        <span className="text-2xl font-extrabold text-indigo-600 font-mono">
+                          {activeReview.evaluation?.overallScore}/100
+                        </span>
+                        <span className="text-[10px] font-bold text-stone-400">BENCHMARK SCORE</span>
+                      </div>
+                    </div>
+
+                    {/* Question Details */}
+                    <div className="rounded-xl bg-stone-50 p-3.5 border border-stone-200 space-y-1">
+                      <span className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider">The Challenge:</span>
+                      <p className="text-xs text-stone-700 leading-relaxed font-medium">
+                        {activeReview.question?.question}
+                      </p>
+                    </div>
+
+                    {/* Your Submitted Answer */}
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] font-extrabold text-stone-500 uppercase tracking-wider flex items-center gap-1">
+                        📋 Your Submitted Answer:
+                      </span>
+                      <div className="rounded-xl border border-stone-200 p-4 font-mono text-xs text-stone-800 leading-relaxed bg-stone-50/50 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                        {activeReview.candidateAnswer}
+                      </div>
+                    </div>
+
+                    {/* Key Improvement Areas - Highlighted */}
+                    <div className="rounded-xl border border-amber-300 bg-amber-50/70 p-4 space-y-2">
+                      <h5 className="font-extrabold text-amber-900 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                        ⚠️ Primary Refactoring &amp; Improvement Opportunities:
+                      </h5>
+                      <ul className="list-disc pl-4 space-y-1 text-xs text-amber-950 font-medium">
+                        {activeReview.evaluation?.blindSpotsAndMissedEdgeCases?.map((gap, i) => (
+                          <li key={i} className="leading-relaxed">
+                            {gap}
+                          </li>
+                        )) || (
+                          <>
+                            <li className="leading-relaxed">Ensure high reliability by decoupling incoming ingress traffic via a persistent queue.</li>
+                            <li className="leading-relaxed">Provide deeper logging metrics for debugging API timeouts under heavy concurrency.</li>
+                          </>
+                        )}
+                      </ul>
+                    </div>
+
+                    {/* Structural Strengths */}
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-2">
+                      <h5 className="font-extrabold text-emerald-900 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                        ✅ Highlighted Architectural Strengths:
+                      </h5>
+                      <ul className="list-disc pl-4 space-y-1 text-xs text-emerald-950">
+                        {activeReview.evaluation?.keyStrengths?.map((strength, i) => (
+                          <li key={i} className="leading-relaxed">
+                            {strength}
+                          </li>
+                        )) || (
+                          <li className="leading-relaxed">Excellent articulation of decoupling schemas.</li>
+                        )}
+                      </ul>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* STANDARD PRACTICE WORKSPACE */
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left Column (Question + Timer): 4 columns if sidebar notes are visible, else 5 */}
+          <div className={showNotesSidebar ? "lg:col-span-4 space-y-5" : "lg:col-span-5 space-y-5"}>
           {/* Pomodoro Focus Timer Card with Visual Countdown & Pacing Alert */}
           <div className={`rounded-2xl border p-4 shadow-sm space-y-3 transition-all duration-300 ${
             timerRemainingSeconds <= 120 && timerRemainingSeconds > 0 && isTimerRunning
@@ -968,6 +1201,57 @@ ${activeHint.revenueMetricAngle}
                 </div>
               </div>
             )}
+
+            {/* Think-Aloud Phase Timer (Optional 2m Prep) */}
+            <div className="border-t border-stone-100 pt-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Brain className={`h-4.5 w-4.5 shrink-0 ${isThinkAloudRunning ? 'text-indigo-600 animate-pulse' : 'text-stone-400'}`} />
+                <div className="text-left">
+                  <div className="text-[11px] font-bold text-stone-800">Think-Aloud Planning Phase</div>
+                  <div className="text-[10px] text-stone-500">Suggested 2-minute architectural blueprint prep</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                {isThinkAloudActive ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono text-xs font-bold bg-indigo-50 border border-indigo-200 px-2 py-1 rounded-lg text-indigo-700">
+                      {formatTime(thinkAloudRemainingSeconds)}
+                    </span>
+                    <button
+                      onClick={() => setIsThinkAloudRunning(!isThinkAloudRunning)}
+                      className={`text-[10px] font-extrabold px-2 py-1 rounded-lg transition ${
+                        isThinkAloudRunning ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-indigo-600 text-white'
+                      }`}
+                    >
+                      {isThinkAloudRunning ? 'Pause' : 'Resume'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsThinkAloudActive(false);
+                        setIsThinkAloudRunning(false);
+                        setIsTimerRunning(true);
+                      }}
+                      className="text-[10px] font-bold text-stone-600 hover:text-stone-900 border border-stone-200 bg-white px-2 py-1 rounded-lg transition"
+                    >
+                      Skip Phase
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setIsThinkAloudActive(true);
+                      setIsThinkAloudRunning(true);
+                      setThinkAloudRemainingSeconds(120);
+                      setIsTimerRunning(false); // Pause focus timer
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1.5 text-[10px] font-bold text-indigo-700 transition"
+                  >
+                    <span>🧠 Start 2-Min Think-Aloud</span>
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Target Company Active Spotlight Card */}
@@ -990,6 +1274,15 @@ ${activeHint.revenueMetricAngle}
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <AudioCoachPlayer
+                    topicOrText={`Target Company Strategy for ${selectedCompany.company} (${selectedCompany.role}). Tech stack: ${selectedCompany.techStack.join(', ')}.`}
+                    context={`Company context: ${selectedCompany.summary}. Rationale: ${selectedCompany.matchRationale}. Questions: ${selectedCompany.ashbyQas?.map(q => q.question).join('; ')}`}
+                    type="target-strategy"
+                    targetCompany={selectedCompany.company}
+                    roleProfile={roleProfile}
+                    buttonLabel="🎧 Audio Briefing"
+                    variant="compact-pill"
+                  />
                   <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 border border-emerald-300">
                     {selectedCompany.matchScore}% Match
                   </span>
@@ -1139,6 +1432,17 @@ ${activeHint.revenueMetricAngle}
               </p>
             </div>
 
+            {/* Auditory Learner Audio Coach Player */}
+            <AudioCoachPlayer
+              topicOrText={activeQuestion.question}
+              context={activeQuestion.contextScenario || `Key criteria: ${activeQuestion.keyEvaluationCriteria.join(', ')}`}
+              type="question-explainer"
+              targetCompany={selectedCompany?.company}
+              roleProfile={roleProfile}
+              buttonLabel="🎧 Hear Question & Strategy Explained (Google TTS Male Voice)"
+              variant="card-banner"
+            />
+
             {activeQuestion.contextScenario && (
               <div className="rounded-xl border border-stone-200 bg-stone-50/70 p-3 text-xs space-y-1">
                 <span className="font-bold text-stone-700 uppercase text-[10px] tracking-wider">
@@ -1242,8 +1546,8 @@ ${activeHint.revenueMetricAngle}
           </div>
         </div>
 
-        {/* Right Column (7 cols): Candidate Answer Workspace & AI Rubric Debrief */}
-        <div className="lg:col-span-7 space-y-5">
+        {/* Right/Middle Column (5 or 7 cols): Candidate Answer Workspace & AI Rubric Debrief */}
+        <div className={showNotesSidebar ? "lg:col-span-5 space-y-5" : "lg:col-span-7 space-y-5"}>
           {/* Answer Workspace */}
           <div ref={workspaceRef} className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-3">
@@ -1709,102 +2013,83 @@ ${activeHint.revenueMetricAngle}
             </div>
           )}
         </div>
-      </div>
 
-      {/* Persistent Quick Technical Notes & Live Scratchpad */}
-      <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-xs space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-2.5">
-          <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700">
-              <StickyNote className="h-4 w-4" />
-            </span>
-            <div>
-              <div className="flex items-center gap-2">
-                <h4 className="text-xs font-bold text-stone-900">
-                  Live Technical Scratchpad &amp; Notes
-                </h4>
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Auto-saved locally
-                </span>
+        {/* Sidebar Column (3 cols): Rendered dynamically on the right only when showNotesSidebar is true */}
+        {showNotesSidebar && (
+          <div className="lg:col-span-3 space-y-4 rounded-2xl border border-indigo-200 bg-indigo-50/10 p-4 shadow-sm h-fit">
+            <div className="flex items-center justify-between border-b border-indigo-100 pb-2">
+              <div className="flex items-center gap-1.5 text-indigo-900 font-extrabold text-xs uppercase tracking-wider">
+                <StickyNote className="h-4 w-4 text-indigo-600" />
+                <span>Quick Notes Sidebar</span>
               </div>
-              <p className="text-[11px] text-stone-500">
-                Jot down scratch equations, schema fields, webhook payloads, or whiteboard notes during your simulation without leaving the page.
+              <button
+                onClick={() => setShowNotesSidebar(false)}
+                className="text-stone-400 hover:text-stone-700 text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Auto-saved per question
+              </span>
+              <p className="text-[10px] text-stone-500 leading-relaxed">
+                Jot down systems engineering fields, webhook schemas, or key tradeoffs for this specific question.
               </p>
             </div>
-          </div>
 
-          <div className="flex items-center gap-1.5">
-            {/* Quick action buttons */}
-            <button
-              onClick={handleCopyNotes}
-              disabled={!quickNotes}
-              className="inline-flex items-center gap-1 rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs font-semibold text-stone-700 hover:bg-stone-100 transition disabled:opacity-40 shadow-2xs"
-              title="Copy scratchpad notes to clipboard"
-            >
-              {copiedNotes ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3 text-stone-500" />}
-              <span>{copiedNotes ? 'Copied' : 'Copy'}</span>
-            </button>
+            <textarea
+              value={activeQuestionNotes}
+              onChange={(e) => handleActiveNotesChange(e.target.value)}
+              rows={12}
+              placeholder="Whiteboard schema, API payloads, or response outlines for this specific question..."
+              className="w-full rounded-xl border border-indigo-200/60 bg-white p-3 text-xs font-mono text-stone-800 placeholder:text-stone-400 focus:ring-1 focus:ring-indigo-500 focus:outline-none transition leading-relaxed shadow-sm resize-y min-h-[200px]"
+            />
 
-            {quickNotes && (
+            <div className="flex flex-wrap items-center gap-1">
               <button
-                onClick={handleClearNotes}
-                className="inline-flex items-center gap-1 rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs font-semibold text-stone-500 hover:text-rose-600 hover:bg-rose-50 transition shadow-2xs"
-                title="Clear notes"
+                onClick={handleCopyNotes}
+                disabled={!activeQuestionNotes}
+                className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg border border-stone-200 bg-white px-2 py-1 text-[10px] font-semibold text-stone-700 hover:bg-stone-50 transition disabled:opacity-40"
               >
-                <Trash2 className="h-3 w-3" />
-                <span>Clear</span>
+                {copiedNotes ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+                <span>{copiedNotes ? 'Copied' : 'Copy'}</span>
               </button>
-            )}
+              {activeQuestionNotes && (
+                <button
+                  onClick={handleClearNotes}
+                  className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg border border-stone-200 bg-white px-2 py-1 text-[10px] font-semibold text-stone-500 hover:text-rose-600 hover:bg-rose-50 transition"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  <span>Clear</span>
+                </button>
+              )}
+            </div>
 
-            <button
-              onClick={() => setNotesExpanded(!notesExpanded)}
-              className="rounded-lg p-1 text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition"
-              title={notesExpanded ? 'Collapse notes' : 'Expand notes'}
-            >
-              {notesExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            </button>
+            <div className="border-t border-indigo-100/50 pt-3 space-y-1.5">
+              <div className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-700">Quick Code Snippets:</div>
+              {[
+                'Idempotency-Key: UUIDv4 + Redis TTL 24h',
+                'SOQL limit: 100 queries / 150 DML',
+                'Queue: Ingress -> SQS -> Worker',
+                'DLQ: Exponential backoff + jitter',
+                'Waterfall: Clay -> ZoomInfo flow'
+              ].map((snippet, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleInsertNoteSnippet(snippet)}
+                  className="w-full text-left rounded-md border border-stone-100 bg-white hover:bg-indigo-50 hover:border-indigo-200 px-2 py-1 text-[10px] font-mono text-stone-600 hover:text-indigo-700 transition shadow-2xs"
+                >
+                  + {snippet.split(':')[0]}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-
-        {/* Quick Technical Keywords / Snippet Helper Chips */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Quick Insert:</span>
-          {[
-            'Idempotency-Key: UUIDv4 + Redis TTL 24h',
-            'SOQL Limit: 100 queries / 150 DML context',
-            'Queue: Ingress Webhook -> SQS/Kafka -> Worker',
-            'DLQ: Exponential backoff (1s, 2s, 4s, max 5)',
-            'Waterfall: Clay -> Apollo -> ZoomInfo cascade',
-            'Lamport Timestamp / Updated-By loop breaker'
-          ].map((snippet, idx) => (
-            <button
-              key={idx}
-              onClick={() => handleInsertNoteSnippet(snippet)}
-              className="rounded-md border border-stone-200 bg-stone-50 hover:bg-indigo-50 hover:border-indigo-200 px-2 py-0.5 text-[10px] font-mono text-stone-600 hover:text-indigo-700 transition"
-            >
-              + {snippet.split(':')[0]}
-            </button>
-          ))}
-        </div>
-
-        {/* Text Area */}
-        <div className="relative">
-          <textarea
-            value={quickNotes}
-            onChange={(e) => handleNotesChange(e.target.value)}
-            rows={notesExpanded ? 4 : 2}
-            placeholder="Jot down quick technical notes, architectural equations, schema fields, webhook payloads, or whiteboard ideas here... Your notes stay saved across drills."
-            className="w-full rounded-xl border border-stone-200 bg-stone-50/50 p-3 text-xs font-mono text-stone-800 placeholder:text-stone-400 focus:border-indigo-500 focus:bg-white focus:outline-none transition leading-relaxed shadow-inner"
-          />
-          <div className="flex items-center justify-between text-[10px] text-stone-400 px-1 pt-1">
-            <span>
-              {quickNotes.trim() ? `${quickNotes.trim().split(/\s+/).length} words • ${quickNotes.length} chars` : 'Scratchpad empty'}
-            </span>
-            <span>Persisted in browser storage</span>
-          </div>
-        </div>
+        )}
       </div>
+      )}
 
       {/* AI Architectural Hint Modal / Drawer */}
       {showHintModal && (
@@ -1939,17 +2224,25 @@ ${activeHint.revenueMetricAngle}
                     <Sparkles className="h-3.5 w-3.5 text-purple-600" />
                     Spoken Monologue (Ready to Read Out Loud)
                   </span>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(scriptFramework.full60SecondMonologue);
-                      setCopiedScript(true);
-                      setTimeout(() => setCopiedScript(false), 2000);
-                    }}
-                    className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-purple-700 border border-purple-200 hover:bg-purple-100 transition shadow-2xs"
-                  >
-                    {copiedScript ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
-                    <span>{copiedScript ? 'Copied' : 'Copy Script'}</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <AudioCoachPlayer
+                      topicOrText={scriptFramework.full60SecondMonologue}
+                      type="direct-tts"
+                      buttonLabel="🔊 Play Audio Monologue"
+                      variant="inline-button"
+                    />
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(scriptFramework.full60SecondMonologue);
+                        setCopiedScript(true);
+                        setTimeout(() => setCopiedScript(false), 2000);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-purple-700 border border-purple-200 hover:bg-purple-100 transition shadow-2xs"
+                    >
+                      {copiedScript ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3 text-purple-600" />}
+                      <span>{copiedScript ? 'Copied' : 'Copy Script'}</span>
+                    </button>
+                  </div>
                 </div>
                 <p className="text-stone-800 text-xs leading-relaxed font-serif italic bg-white p-3 rounded-xl border border-purple-100 shadow-2xs">
                   {scriptFramework.full60SecondMonologue}

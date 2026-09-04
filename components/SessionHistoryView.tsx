@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { MockInterviewSession, SessionReport, CandidateAnswerRecord } from '@/lib/types';
 import { deleteSession, saveSession, exportSessionsAsJSON, importSessionsFromJSON } from '@/lib/storage';
+import { downloadSessionReportPDF, downloadFullSessionPDF } from '@/lib/generatePdfReport';
 
 interface SessionHistoryViewProps {
   sessions: MockInterviewSession[];
@@ -174,6 +175,7 @@ export const SessionHistoryView: React.FC<SessionHistoryViewProps> = ({
   const [filterDifficulty, setFilterDifficulty] = useState<string>('all');
   const [copiedReport, setCopiedReport] = useState<boolean>(false);
   const [copiedDetail, setCopiedDetail] = useState<boolean>(false);
+  const [isDownloadingPDF, setIsDownloadingPDF] = useState<boolean>(false);
 
   // Pool of all sessions available for comparison (combining saved sessions and sample benchmarks)
   const comparisonPool = sessions.length >= 2 
@@ -246,196 +248,30 @@ export const SessionHistoryView: React.FC<SessionHistoryViewProps> = ({
 
   const handleExportToPDF = () => {
     if (!activeReport) return;
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="utf-8">
-          <title>GTM-Pulse Studio Benchmark Report - Jamil Yakasai</title>
-          <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding: 40px; color: #1c1917; line-height: 1.5; font-size: 13px; max-width: 820px; margin: 0 auto; background: #fff; }
-            .header-badge { display: inline-block; background: #e0e7ff; color: #3730a3; padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 11px; text-transform: uppercase; margin-bottom: 8px; border: 1px solid #c7d2fe; }
-            h1 { font-size: 22px; margin: 0 0 4px 0; color: #0f172a; letter-spacing: -0.02em; }
-            .meta { color: #64748b; font-size: 12px; margin-bottom: 24px; border-bottom: 1px solid #e2e8f0; padding-bottom: 14px; }
-            .score-card { display: flex; gap: 24px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 24px; margin-bottom: 24px; }
-            .score-box { text-align: left; }
-            .score-val { font-size: 28px; font-weight: 800; color: #4338ca; line-height: 1; }
-            .score-label { font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: 700; margin-top: 4px; }
-            h2 { font-size: 13px; text-transform: uppercase; color: #334155; letter-spacing: 0.05em; border-bottom: 1.5px solid #e2e8f0; padding-bottom: 6px; margin: 24px 0 12px 0; font-weight: 800; }
-            .summary { background: #fafaf9; border-left: 4px solid #6366f1; padding: 14px 18px; border-radius: 6px; margin-bottom: 20px; font-size: 12.5px; line-height: 1.6; }
-            .pillar-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
-            .pillar-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; background: #ffffff; }
-            .pillar-name { font-weight: 700; font-size: 12px; color: #0f172a; display: flex; justify-content: space-between; align-items: center; }
-            .pillar-score { color: #4338ca; font-weight: 800; font-size: 14px; }
-            .pillar-target { font-size: 10px; color: #64748b; margin-top: 2px; }
-            .pillar-desc { font-size: 11px; color: #475569; margin-top: 6px; line-height: 1.4; }
-            .list-item { margin-bottom: 8px; line-height: 1.5; }
-            .action-item { margin-bottom: 10px; padding: 8px 12px; background: #f8fafc; border-left: 3px solid #6366f1; border-radius: 4px; }
-            .footer { margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 16px; font-size: 11px; color: #94a3b8; text-align: center; }
-            @media print {
-              body { padding: 15px; font-size: 12px; }
-              .no-print { display: none; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header-badge">Performance Benchmark Report</div>
-          <h1>GTM Systems Engineer Technical Evaluation</h1>
-          <div class="meta">
-            <strong>Candidate:</strong> Jamil Yakasai (mrjamilyakasai@gmail.com) &bull; 
-            <strong>Target Role:</strong> Senior GTM Systems Engineer &bull; 
-            <strong>Date:</strong> ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-          </div>
-
-          <div class="score-card">
-            <div class="score-box">
-              <div class="score-val">${activeReport.overallScore}/100</div>
-              <div class="score-label">Overall Benchmark Score</div>
-            </div>
-            <div class="score-box" style="margin-left: 20px;">
-              <div class="score-val" style="color: #059669;">${activeReport.overallRating}</div>
-              <div class="score-label">Evaluation Rating</div>
-            </div>
-            <div class="score-box" style="margin-left: 20px;">
-              <div class="score-val" style="color: #d97706;">Top ${100 - (activeReport.readinessPercentile || 85)}%</div>
-              <div class="score-label">Readiness Percentile</div>
-            </div>
-          </div>
-
-          <h2>1. Executive Summary</h2>
-          <div class="summary">${activeReport.executiveSummary.replace(/\n/g, '<br/>')}</div>
-
-          <h2>2. 5-Pillar Competency Benchmarks</h2>
-          <div class="pillar-grid">
-            ${activeReport.pillarBreakdown?.map(p => `
-              <div class="pillar-card">
-                <div class="pillar-name">
-                  <span>${p.name}</span>
-                  <span class="pillar-score">${p.score}%</span>
-                </div>
-                <div class="pillar-target">Industry Senior Target: ${p.benchmarkSenior || 85}%</div>
-                <div class="pillar-desc">${p.summary}</div>
-              </div>
-            `).join('')}
-          </div>
-
-          <h2>3. Key Demonstrated Strengths</h2>
-          <ul>
-            ${activeReport.strengths?.map(s => `<li class="list-item"><strong>${s}</strong></li>`).join('')}
-          </ul>
-
-          <h2>4. Target Areas to Sharpen for Staff Tier</h2>
-          <ul>
-            ${activeReport.areasToSharpen?.map(a => `<li class="list-item">${a}</li>`).join('')}
-          </ul>
-
-          ${activeReport.sevenDayActionPlan?.length ? `
-            <h2>5. Recommended 7-Day Sprint Plan</h2>
-            <div>
-              ${activeReport.sevenDayActionPlan.map(d => `
-                <div class="action-item">
-                  <strong>${d.day} (${d.focus}):</strong> ${d.recommendedExercise}
-                </div>
-              `).join('')}
-            </div>
-          ` : ''}
-
-          <div class="footer">
-            GTM-Pulse Studio &bull; Offline Performance Review &bull; Evaluated against Tier-1 SaaS GTM Hiring Bars
-          </div>
-
-          <script>
-            window.onload = function() {
-              window.print();
-            };
-          </script>
-        </body>
-        </html>
-      `;
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
-    } else {
-      window.print();
+    setIsDownloadingPDF(true);
+    try {
+      const matchedSession = sessions.find((s) => s.id === activeReport.sessionId);
+      const title = matchedSession?.title || 'GTM Systems Architecture Interview Session';
+      downloadSessionReportPDF(activeReport, title);
+    } catch (err) {
+      console.error('Failed to generate Session Report PDF', err);
+    } finally {
+      setTimeout(() => setIsDownloadingPDF(false), 800);
     }
   };
 
   const handleExportSessionToPDF = (session: MockInterviewSession) => {
-    const printWindow = window.open('', '_blank');
-    const sessionAnswers = session.answers || (session as any).questionsAnswered || [];
-    if (printWindow) {
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="utf-8">
-          <title>${session.title} - Jamil Yakasai</title>
-          <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding: 40px; color: #1c1917; line-height: 1.5; font-size: 13px; max-width: 820px; margin: 0 auto; background: #fff; }
-            .header-badge { display: inline-block; background: #e0e7ff; color: #3730a3; padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 11px; text-transform: uppercase; margin-bottom: 8px; }
-            h1 { font-size: 20px; margin: 0 0 4px 0; color: #0f172a; }
-            .meta { color: #64748b; font-size: 12px; margin-bottom: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; }
-            .score-card { display: flex; gap: 20px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 20px; margin-bottom: 20px; }
-            .score-box { text-align: left; }
-            .score-val { font-size: 24px; font-weight: 800; color: #4338ca; }
-            .score-label { font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: 700; }
-            .q-box { border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px; background: #fafaf9; }
-            .q-title { font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 6px; }
-            .q-score { color: #4338ca; font-weight: 800; float: right; font-size: 14px; }
-            .answer-text { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; margin: 10px 0; white-space: pre-wrap; }
-            .strengths { color: #065f46; font-size: 12px; margin-top: 8px; }
-            .blindspots { color: #92400e; font-size: 12px; margin-top: 8px; }
-            @media print { body { padding: 15px; font-size: 12px; } }
-          </style>
-        </head>
-        <body>
-          <div class="header-badge">Session Evaluation Record</div>
-          <h1>${session.title}</h1>
-          <div class="meta">
-            Candidate: Jamil Yakasai &bull; Difficulty: ${session.difficulty} &bull; Date: ${new Date(session.date).toLocaleString()}
-          </div>
-          <div class="score-card">
-            <div class="score-box">
-              <div class="score-val">${session.averageScore}%</div>
-              <div class="score-label">Session Average Score</div>
-            </div>
-            <div class="score-box" style="margin-left: 20px;">
-              <div class="score-val" style="color: #059669;">${sessionAnswers.length}</div>
-              <div class="score-label">Questions Drilled</div>
-            </div>
-          </div>
-          ${sessionAnswers.map((a: CandidateAnswerRecord, idx: number) => `
-            <div class="q-box">
-              <span class="q-score">${a.evaluation?.overallScore || 0}%</span>
-              <div class="q-title">${idx + 1}. ${a.question?.title || 'Technical Drill'}</div>
-              <div style="font-size: 11px; color: #64748b; margin-bottom: 8px;">${a.question?.category || a.question?.track || 'General'} &bull; ${a.question?.difficulty || 'Senior'}</div>
-              <strong>Candidate Answer:</strong>
-              <div class="answer-text">${a.candidateAnswer}</div>
-              ${a.evaluation?.keyStrengths?.length ? `
-                <div class="strengths">
-                  <strong>Key Strengths:</strong>
-                  <ul>${a.evaluation.keyStrengths.map((s: string) => `<li>${s}</li>`).join('')}</ul>
-                </div>
-              ` : ''}
-              ${a.evaluation?.blindSpotsAndMissedEdgeCases?.length ? `
-                <div class="blindspots">
-                  <strong>Blind Spots & Gotchas:</strong>
-                  <ul>${a.evaluation.blindSpotsAndMissedEdgeCases.map((b: string) => `<li>${b}</li>`).join('')}</ul>
-                </div>
-              ` : ''}
-            </div>
-          `).join('')}
-          <script>
-            window.onload = function() { window.print(); };
-          </script>
-        </body>
-        </html>
-      `;
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
-    } else {
-      window.print();
+    setIsDownloadingPDF(true);
+    try {
+      if (session.report) {
+        downloadSessionReportPDF(session.report, session.title);
+      } else {
+        downloadFullSessionPDF(session);
+      }
+    } catch (err) {
+      console.error('Failed to generate Session PDF', err);
+    } finally {
+      setTimeout(() => setIsDownloadingPDF(false), 800);
     }
   };
 
@@ -757,12 +593,14 @@ export const SessionHistoryView: React.FC<SessionHistoryViewProps> = ({
 
               {/* Export to PDF Button */}
               <button
+                id="download-active-report-pdf-btn"
                 onClick={handleExportToPDF}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 text-xs font-bold shadow-xs transition"
-                title="Download and review performance benchmarks offline as PDF"
+                disabled={isDownloadingPDF}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-bold shadow-xs transition disabled:opacity-50"
+                title="Generate and download a formal PDF version of this Session Report"
               >
-                <FileDown className="h-3.5 w-3.5 text-indigo-600" />
-                <span>Export to PDF</span>
+                <FileDown className="h-3.5 w-3.5 text-white" />
+                <span>{isDownloadingPDF ? 'Generating PDF...' : 'Download PDF Report'}</span>
               </button>
               
               <button
@@ -871,6 +709,212 @@ export const SessionHistoryView: React.FC<SessionHistoryViewProps> = ({
           )}
         </div>
       )}
+
+      {/* GTM Progression Analytics & Cognitive Error Tracker */}
+      {sessions.length > 0 && (() => {
+        // Chronological sort for progress graph
+        const chronologicalSessions = [...sessions].sort(
+          (a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()
+        );
+
+        // Compute error categories dynamically from sessions
+        const errors = {
+          syncWrites: 0,
+          rateLimits: 0,
+          recursion: 0,
+          idempotency: 0,
+          dlq: 0
+        };
+
+        sessions.forEach(s => {
+          const text = JSON.stringify(s).toLowerCase();
+          if (text.includes('sync write') || text.includes('synchronous') || text.includes('directly to salesforce')) errors.syncWrites++;
+          if (text.includes('429') || text.includes('rate limit') || text.includes('throttl')) errors.rateLimits++;
+          if (text.includes('infinite loop') || text.includes('recursion') || text.includes('ping-pong')) errors.recursion++;
+          if (text.includes('idempotency') || text.includes('duplicate') || text.includes('race condition')) errors.idempotency++;
+          if (text.includes('dead letter') || text.includes('dlq') || text.includes('dropped lead')) errors.dlq++;
+        });
+
+        // Net improvement calculations
+        const firstScore = chronologicalSessions[0]?.averageScore || 0;
+        const lastScore = chronologicalSessions[chronologicalSessions.length - 1]?.averageScore || 0;
+        const netDelta = lastScore - firstScore;
+
+        return (
+          <div className="rounded-2xl border border-indigo-200/80 bg-linear-to-b from-indigo-50/20 to-white p-5 shadow-xs space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-100 pb-3">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-md bg-indigo-100 text-indigo-700">
+                    <TrendingUp className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-indigo-950">
+                    GTM Progression Analytics &amp; Cognitive Error Tracker
+                  </span>
+                </div>
+                <p className="text-[11px] text-stone-500">
+                  Dynamic evaluation of historical trends, recurring architectural mistakes, and targeted system recovery KPIs.
+                </p>
+              </div>
+
+              {netDelta > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-xs font-bold text-emerald-800">
+                  Net Skill Improvement: +{netDelta}% Score Growth
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+              {/* Left Column: Visual Score Trajectory (SVG) */}
+              <div className="lg:col-span-7 bg-white rounded-xl border border-stone-100 p-4 space-y-3 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-stone-900 flex items-center gap-1">
+                    <Target className="h-3.5 w-3.5 text-indigo-600" />
+                    Interview &amp; Outage Score Trajectory
+                  </span>
+                  <span className="text-[10px] text-stone-400 font-medium">
+                    Chronological (N={chronologicalSessions.length} runs)
+                  </span>
+                </div>
+
+                {chronologicalSessions.length < 2 ? (
+                  <div className="h-36 flex flex-col items-center justify-center border border-dashed border-stone-200 rounded-lg text-center p-4">
+                    <p className="text-xs font-semibold text-stone-600">Trajectory Line Requires ≥2 Sessions</p>
+                    <p className="text-[10px] text-stone-400 mt-0.5">Complete more technical drills to chart your learning curve.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {/* SVG Line Graph */}
+                    <div className="relative h-32 w-full border-b border-l border-stone-100 pb-1">
+                      <svg viewBox="0 0 100 30" className="h-full w-full overflow-visible" preserveAspectRatio="none">
+                        {/* Grid lines */}
+                        <line x1="0" y1="7.5" x2="100" y2="7.5" stroke="#f1f5f9" strokeWidth="0.25" strokeDasharray="1 1" />
+                        <line x1="0" y1="15" x2="100" y2="15" stroke="#f1f5f9" strokeWidth="0.25" strokeDasharray="1 1" />
+                        <line x1="0" y1="22.5" x2="100" y2="22.5" stroke="#f1f5f9" strokeWidth="0.25" strokeDasharray="1 1" />
+
+                        {/* Line Path */}
+                        <path
+                          d={chronologicalSessions.map((s, idx) => {
+                            const x = (idx / (chronologicalSessions.length - 1)) * 100;
+                            // mapping 0-100 score to 30-0 height (inverted)
+                            const y = 30 - ((s.averageScore || 0) / 100) * 30;
+                            return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`;
+                          }).join(' ')}
+                          fill="none"
+                          stroke="#6366f1"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+
+                        {/* Scatter points with score annotations */}
+                        {chronologicalSessions.map((s, idx) => {
+                          const x = (idx / (chronologicalSessions.length - 1)) * 100;
+                          const y = 30 - ((s.averageScore || 0) / 100) * 30;
+                          return (
+                            <g key={s.id}>
+                              <circle
+                                cx={x}
+                                cy={y}
+                                r="1.5"
+                                fill="#ffffff"
+                                stroke="#4338ca"
+                                strokeWidth="0.75"
+                              />
+                            </g>
+                          );
+                        })}
+                      </svg>
+
+                      {/* Floating Labels */}
+                      <div className="absolute top-0 right-2 text-[9px] text-indigo-600 font-bold bg-indigo-50 px-1 py-0.5 rounded border border-indigo-100">
+                        Peak: {Math.max(...chronologicalSessions.map(s => s.averageScore || 0))}%
+                      </div>
+                    </div>
+
+                    {/* Timeline Legend */}
+                    <div className="flex justify-between items-center text-[10px] text-stone-500 pt-1 font-medium">
+                      <span className="truncate max-w-[120px] font-bold">1st: {chronologicalSessions[0]?.title?.split(':')[0]} ({firstScore}%)</span>
+                      <span>Timeline Progression</span>
+                      <span className="truncate max-w-[120px] font-bold text-indigo-700">Latest: {chronologicalSessions[chronologicalSessions.length - 1]?.title?.split(':')[0]} ({lastScore}%)</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column: Dynamic Cognitive Error Tracker */}
+              <div className="lg:col-span-5 bg-white rounded-xl border border-stone-100 p-4 space-y-3.5 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-stone-900 flex items-center gap-1">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                    Cognitive Architectural Risk Audit
+                  </span>
+                  <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">
+                    SLA Vulnerability Tracker
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                  <div className="rounded-lg p-2.5 bg-rose-50/50 border border-rose-100 space-y-1">
+                    <div className="flex items-center justify-between text-rose-950 font-bold">
+                      <span>Sync Outages</span>
+                      <span className={`px-1 rounded-sm text-[9px] ${errors.syncWrites > 0 ? 'bg-rose-200 text-rose-900' : 'bg-stone-200 text-stone-600'}`}>
+                        {errors.syncWrites} runs
+                      </span>
+                    </div>
+                    <p className="text-[9px] text-stone-500 leading-tight">Synchronous downstream CRM API call pattern.</p>
+                  </div>
+
+                  <div className="rounded-lg p-2.5 bg-amber-50/50 border border-amber-100 space-y-1">
+                    <div className="flex items-center justify-between text-amber-950 font-bold">
+                      <span>HTTP 429 Risks</span>
+                      <span className={`px-1 rounded-sm text-[9px] ${errors.rateLimits > 0 ? 'bg-amber-200 text-amber-900' : 'bg-stone-200 text-stone-600'}`}>
+                        {errors.rateLimits} runs
+                      </span>
+                    </div>
+                    <p className="text-[9px] text-stone-500 leading-tight">Fails to shield CRM endpoints from high-throughput bursts.</p>
+                  </div>
+
+                  <div className="rounded-lg p-2.5 bg-indigo-50/50 border border-indigo-100 space-y-1">
+                    <div className="flex items-center justify-between text-indigo-950 font-bold">
+                      <span>CRM Loops</span>
+                      <span className={`px-1 rounded-sm text-[9px] ${errors.recursion > 0 ? 'bg-indigo-200 text-indigo-900' : 'bg-stone-200 text-stone-600'}`}>
+                        {errors.recursion} runs
+                      </span>
+                    </div>
+                    <p className="text-[9px] text-stone-500 leading-tight">Infinite recursion triggers and integration-user loop risks.</p>
+                  </div>
+
+                  <div className="rounded-lg p-2.5 bg-emerald-50/50 border border-emerald-100 space-y-1">
+                    <div className="flex items-center justify-between text-emerald-950 font-bold">
+                      <span>Queue Safeguards</span>
+                      <span className={`px-1 rounded-sm text-[9px] ${errors.dlq > 0 ? 'bg-emerald-200 text-emerald-900' : 'bg-stone-200 text-stone-600'}`}>
+                        {errors.dlq} runs
+                      </span>
+                    </div>
+                    <p className="text-[9px] text-stone-500 leading-tight">Omission of SQS FIFO buffering or Dead Letter Queues.</p>
+                  </div>
+                </div>
+
+                {/* Targeted Advice Drawer */}
+                <div className="rounded-lg bg-indigo-950 p-3 text-[11px] text-indigo-200/90 leading-normal border border-indigo-900 space-y-1">
+                  <div className="font-bold text-indigo-100 uppercase text-[9px] tracking-wider flex items-center gap-1">
+                    <BookOpen className="h-3 w-3 text-indigo-300" />
+                    Proactive Refactoring Guardrail:
+                  </div>
+                  <p className="text-[10px] leading-relaxed">
+                    {errors.syncWrites > 0
+                      ? "❌ Avoid direct REST API mutations inside the inbound HTTP thread. Always return HTTP 202 immediately and delegate payload parsing to Redis/SQS workers."
+                      : errors.rateLimits > 0
+                      ? "❌ Enforce a sliding token bucket rate-limiter check at your ingress gateway. Route bursts exceeding standard SLAs to a VIP Kafka partition."
+                      : "✅ Keep it decoupled! Frame all pre-sales, sandbox, and active incident response architectures around idempotent events, async worker pools, and isolated dead-letter databases."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Search & Filter Controls */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
@@ -1477,12 +1521,14 @@ export const SessionHistoryView: React.FC<SessionHistoryViewProps> = ({
 
                   {/* Export Session PDF */}
                   <button
+                    id={`download-session-${selectedSessionDetail.id}-pdf-btn`}
                     onClick={() => handleExportSessionToPDF(selectedSessionDetail)}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-100 shadow-2xs"
-                    title="Download and print session report as PDF"
+                    disabled={isDownloadingPDF}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 shadow-2xs transition disabled:opacity-50"
+                    title="Download formal Session Report / Dossier as PDF"
                   >
-                    <FileDown className="h-3.5 w-3.5 text-stone-600" />
-                    <span>PDF</span>
+                    <FileDown className="h-3.5 w-3.5 text-indigo-600" />
+                    <span>{isDownloadingPDF ? 'Exporting...' : 'PDF'}</span>
                   </button>
 
                   <button

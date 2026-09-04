@@ -29,6 +29,7 @@ import confetti from 'canvas-confetti';
 import { GUIDED_STUDIO_STEPS, GuidedStepItem } from '@/lib/guided-steps-data';
 import { MiniQuiz } from '@/components/MiniQuiz';
 import { AppTab } from '@/components/Navbar';
+import { useStorageItem } from '@/lib/useHydration';
 
 interface GuidedActionGuideProps {
   activeTab: AppTab;
@@ -44,44 +45,9 @@ export const GuidedActionGuide: React.FC<GuidedActionGuideProps> = ({
   setActiveTab
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
-  const [selectedStepIndex, setSelectedStepIndex] = useState<number>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const storedIndex = localStorage.getItem(STORAGE_KEY_STEP_INDEX);
-        if (storedIndex !== null) {
-          const parsed = parseInt(storedIndex, 10);
-          if (!isNaN(parsed) && parsed >= 0 && parsed < GUIDED_STUDIO_STEPS.length) {
-            return parsed;
-          }
-        }
-      } catch (_) {}
-    }
-    return 0;
-  });
-
-  const [savedQuizAnswers, setSavedQuizAnswers] = useState<Record<string, string>>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const storedAnswers = localStorage.getItem(STORAGE_KEY_QUIZ_ANSWERS);
-        if (storedAnswers) {
-          return JSON.parse(storedAnswers);
-        }
-      } catch (_) {}
-    }
-    return {};
-  });
-
-  const [completedSteps, setCompletedSteps] = useState<number[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const storedCompleted = localStorage.getItem(STORAGE_KEY_COMPLETED_STEPS);
-        if (storedCompleted) {
-          return JSON.parse(storedCompleted);
-        }
-      } catch (_) {}
-    }
-    return [];
-  });
+  const [selectedStepIndex, setSelectedStepIndex, removeStepIndex] = useStorageItem<number>(STORAGE_KEY_STEP_INDEX, 0);
+  const [savedQuizAnswers, setSavedQuizAnswers, removeQuizAnswers] = useStorageItem<Record<string, string>>(STORAGE_KEY_QUIZ_ANSWERS, {});
+  const [completedSteps, setCompletedSteps, removeCompletedSteps] = useStorageItem<number[]>(STORAGE_KEY_COMPLETED_STEPS, []);
 
   const totalSteps = GUIDED_STUDIO_STEPS.length;
   const totalQuestions = GUIDED_STUDIO_STEPS.reduce((acc, s) => acc + s.quizzes.length, 0);
@@ -89,24 +55,11 @@ export const GuidedActionGuide: React.FC<GuidedActionGuideProps> = ({
   // 2. Save step index when user changes steps
   const updateStepIndex = (newIndex: number) => {
     setSelectedStepIndex(newIndex);
-    try {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEY_STEP_INDEX, newIndex.toString());
-      }
-    } catch (_) {}
   };
 
   // 3. Save quiz answers
-  const handleSaveQuizAnswer = (questionId: string, optionId: string, isCorrect: boolean) => {
-    setSavedQuizAnswers((prev) => {
-      const updated = { ...prev, [questionId]: optionId };
-      try {
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEY_QUIZ_ANSWERS, JSON.stringify(updated));
-        }
-      } catch (_) {}
-      return updated;
-    });
+  const handleSaveQuizAnswer = (questionId: string, optionId: string, _isCorrect: boolean) => {
+    setSavedQuizAnswers((prev) => ({ ...prev, [questionId]: optionId }));
 
     // Check if the current step is now completed
     const currentStepObj = GUIDED_STUDIO_STEPS[selectedStepIndex];
@@ -114,26 +67,14 @@ export const GuidedActionGuide: React.FC<GuidedActionGuideProps> = ({
       const allStepQs = currentStepObj.quizzes;
       const willBeAnswered = allStepQs.every((q) => q.id === questionId || !!savedQuizAnswers[q.id]);
       if (willBeAnswered && !completedSteps.includes(currentStepObj.stepNumber)) {
-        const newCompleted = [...completedSteps, currentStepObj.stepNumber];
-        setCompletedSteps(newCompleted);
-        try {
-          if (typeof window !== 'undefined') {
-            localStorage.setItem(STORAGE_KEY_COMPLETED_STEPS, JSON.stringify(newCompleted));
-          }
-        } catch (_) {}
+        setCompletedSteps((prev) => (prev.includes(currentStepObj.stepNumber) ? prev : [...prev, currentStepObj.stepNumber]));
       }
     }
   };
 
   const handleStepQuizCompleted = (stepNumber: number, correctCount: number, total: number) => {
     if (!completedSteps.includes(stepNumber)) {
-      const newCompleted = [...completedSteps, stepNumber];
-      setCompletedSteps(newCompleted);
-      try {
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEY_COMPLETED_STEPS, JSON.stringify(newCompleted));
-        }
-      } catch (_) {}
+      setCompletedSteps((prev) => (prev.includes(stepNumber) ? prev : [...prev, stepNumber]));
     }
 
     if (correctCount === total) {
@@ -151,14 +92,9 @@ export const GuidedActionGuide: React.FC<GuidedActionGuideProps> = ({
   // Reset entire tutorial flow & quiz progress
   const handleResetProgress = () => {
     if (window.confirm('Reset all guided roadmap steps and mini-quiz progress?')) {
-      setSelectedStepIndex(0);
-      setSavedQuizAnswers({});
-      setCompletedSteps([]);
-      try {
-        localStorage.removeItem(STORAGE_KEY_STEP_INDEX);
-        localStorage.removeItem(STORAGE_KEY_QUIZ_ANSWERS);
-        localStorage.removeItem(STORAGE_KEY_COMPLETED_STEPS);
-      } catch (_) {}
+      removeStepIndex();
+      removeQuizAnswers();
+      removeCompletedSteps();
     }
   };
 
@@ -229,7 +165,7 @@ export const GuidedActionGuide: React.FC<GuidedActionGuideProps> = ({
                 <Compass className="h-4 w-4 text-indigo-600" />
                 <span>Sequential Action Roadmap &amp; Knowledge Checks</span>
               </span>
-              <span className="rounded-full bg-indigo-100 text-indigo-800 text-[10px] font-bold px-2.5 py-0.5 border border-indigo-200">
+              <span suppressHydrationWarning className="rounded-full bg-indigo-100 text-indigo-800 text-[10px] font-bold px-2.5 py-0.5 border border-indigo-200">
                 Resumes at Step {selectedStepIndex + 1} of {totalSteps}
               </span>
             </div>
@@ -245,7 +181,7 @@ export const GuidedActionGuide: React.FC<GuidedActionGuideProps> = ({
             <Trophy className="h-4 w-4 text-amber-500 shrink-0" />
             <div className="text-left">
               <div className="text-[10px] text-stone-500 font-medium leading-none">Topic Mastery</div>
-              <div className="font-bold text-indigo-900 leading-tight">
+              <div suppressHydrationWarning className="font-bold text-indigo-900 leading-tight">
                 {completedSteps.length} / {totalSteps} Topics &bull; {totalCorrectAnswers}/{totalQuestions} Qs
               </div>
             </div>
@@ -270,10 +206,10 @@ export const GuidedActionGuide: React.FC<GuidedActionGuideProps> = ({
               <Zap className="h-3.5 w-3.5 text-amber-500" />
               <span>Tutorial Progress Meter:</span>
             </span>
-            <span className="rounded-full bg-emerald-50 text-emerald-800 font-bold px-2 py-0.5 text-[11px] border border-emerald-200">
+            <span suppressHydrationWarning className="rounded-full bg-emerald-50 text-emerald-800 font-bold px-2 py-0.5 text-[11px] border border-emerald-200">
               {overallProgressPercent}% Complete
             </span>
-            <span className="text-[11px] text-stone-500 hidden md:inline">
+            <span suppressHydrationWarning className="text-[11px] text-stone-500 hidden md:inline">
               ({completedSteps.length} of 6 topics completed &bull; {totalAnsweredQuestions} of 18 questions answered)
             </span>
           </div>
